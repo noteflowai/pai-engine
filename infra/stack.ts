@@ -233,7 +233,11 @@ export class WorkbenchStack extends cdk.Stack {
       conditions: [{ field: "host-header", hostHeaderConfig: { values: [domain] } }, { field: "path-pattern", pathPatternConfig: { values: ["/api/agent/*"] } }],
       actions: [
         { type: "jwt-validation", order: 1, jwtValidationConfig: { jwksEndpoint: `${issuer}/.well-known/jwks.json`, issuer,
-          additionalClaims: [{ format: "single-string", name: "token_use", values: ["access"] }, { format: "single-string", name: "client_id", values: [agentClient.userPoolClientId, ...tenantClients.map(t => t.client.userPoolClientId)] }] } },
+          additionalClaims: [{ format: "single-string", name: "token_use", values: ["access"] },
+          // A single-string claim takes exactly one value. With only the workspace agent client the ALB pins it; once
+          // tenants exist the ALB checks signature, this pool's issuer and token_use, and the workbench pins the exact
+          // client id, scope and tenant on every request (src/agent-api.ts, src/server.ts; tests/agent-api.test.ts).
+          ...(tenantClients.length === 0 ? [{ format: "single-string", name: "client_id", values: [agentClient.userPoolClientId] }] : [])] } },
         { type: "forward", order: 2, targetGroupArn: targetGroup.targetGroupArn },
       ],
     });
