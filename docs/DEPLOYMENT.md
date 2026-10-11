@@ -127,7 +127,7 @@ Codex / Claude 的回答按执行器规则总是"影响未知"。维护者在工
 
 ## 邀请租户（ADR 0002 §5）
 
-1. 在 `infra/cdk.context.json` 加 `"tenants": "[{\"id\":\"<租户>\",\"maxConcurrentRuns\":2,\"maxRunsPerDay\":50}]"`，`npm run diff` 应只新增该租户的 Cognito 客户端、密钥和 ALB 规则里的 client id；然后部署并执行 `apply-release`（把输出 `Tenants` 写进 `PAI_TENANTS`）。
+1. 在 `infra/cdk.context.json` 加 `"tenants": "[{\"id\":\"<租户>\",\"maxConcurrentRuns\":2,\"maxRunsPerDay\":50}]"`，`npm run diff` 应只新增该租户的 Cognito 客户端与密钥，并修改 Agent 路由的 ALB 规则（ALB 的 single-string 声明只能有一个值，所以有租户时 ALB 只校验签名、签发者和 token_use，由工作台逐请求校验精确的 client id、scope 与租户）；然后部署并执行 `apply-release`（把输出 `Tenants` 写进 `PAI_TENANTS`）。
 2. 维护者在 `POST /api/v1/offerings` 把一个**全部制品已发布**的流程提供给该租户。
 3. 运维者读取 `TenantSecretArn<租户>` 的密钥，经安全渠道交给租户；租户用 client credentials（scope `pai-agent/tenant`）调用 `/api/agent/v1/tenant/...`。
 4. 结束：撤销提供；从 context 删除租户并部署会删除它的客户端和密钥。
