@@ -76,6 +76,8 @@
     "base": "Qwen/Qwen3.5-2B-Base",
     "baseRevision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
     "license": "Apache-2.0",
-    "note": "Served by its own `strands-decider serve`; the workbench calls PAI_DECIDER_URL (loopback/private). Suggestions only, never verdicts."
+    "note": "Hosted on the workbench instance's L4 (g6.xlarge) as pai-decider.service, loopback 127.0.0.1:8801, offline (HF_HUB_OFFLINE=1). Triage and suggestions only, never verdicts.",
+    "lock": "native/decider-requirements.txt",
+    "driver": "NVIDIA 580 server open (Ubuntu linux-modules-nvidia-580-server-open-<kernel>)"
   }
 }

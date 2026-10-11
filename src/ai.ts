@@ -1,3 +1,4 @@
+import { deciderConfigured, suggestLane } from "./decider.js";
 import { AeroParameters, AeroRequest, AeroRequirements, DEFAULT_AERO_REQUIREMENTS, type AeroReview } from "./aero.js";
 import type { RecordKind } from "./ontology/kinds.js";
 import { randomUUID } from "node:crypto";
@@ -43,7 +44,11 @@ export const AiInput = z.object({
   /** Visual review: recorded native images (renders, inspection views) sent to the model with the text context. */
   attachments: z.array(z.object({ recordKind: z.enum(["scene-review", "cad-review", "aero-review"]), recordId: Id,
     which: z.enum(["baseline", "candidate"]), file: z.string().regex(/^[a-z0-9-]{1,40}\.(png|jpg)$/) }).strict()).max(3).optional(),
+  /** Ask the large model even when the decision model is confident the request is out of scope. */
+  force: z.boolean().optional(),
 }).strict();
+/** Decision-model lanes that correspond to each plan tool (factory covers both factory steps). */
+const laneOf = (tool: string) => tool.startsWith("factory-") ? "factory" : tool;
 export const AiReconcile = z.object({ reason: z.string().trim().min(10).max(1000) }).strict();
 const placeholder = "00000000-0000-4000-8000-000000000000";
 const PROFILE_LABEL: Record<string, string> = { "kiro-primary": "Kiro 主账号", "kiro-backup": "Kiro 备用账号", "kiro-backup2": "Kiro 二备账号", codex: "Codex", claude: "Claude" };
@@ -603,11 +608,31 @@ export async function createAiPlan(store: Store, config: Config, input: unknown,
   const step = (id: string, label: string, status: "running" | "done" | "failed", detail?: string) => live?.publish(request.requestId, { kind: "step", id, label, status, detail });
   live?.publish(request.requestId, { kind: "record", recordKind: "assistant-plan", recordId: record.id });
   try {
+    // System 1 before System 2: the decision model (Strands Decider, ~0.1-0.2 s) triages the request. Confidently out
+    // of scope -> no large-model attempt is spent (the user can force one); a confident lane -> a hint in the prompt,
+    // never a constraint. Its answer never runs anything. Unavailable or slow -> skipped (fail closed).
+    const triage = deciderConfigured(config) && !request.attachments?.length ? await suggestLane(config, request.message) : undefined;
+    if (triage) {
+      record.suggestion = triage;
+      step("triage", "决策模型分诊（Strands Decider）", "done", triage.lane ? `${triage.lane} · 置信 ${triage.confidence}` : `不确定 · 置信 ${triage.confidence}`);
+    }
+    if (triage?.lane === "out-of-scope" && !request.force && !request.tools) {
+      record.triage = { skippedModel: true, hinted: false, agreement: null, relaxMismatch: false };
+      record.state = "done"; record.unmatched = true;
+      record.model = { used: false, reason: `决策模型判断这不是工作台的设计请求（置信 ${triage.confidence}）；没有调用大模型，未消耗尝试额度` };
+      record.interpretation = ["这看起来不是工作台能处理的设计请求，所以没有调用 AI 引擎。如果判断有误，可以选择仍然询问 AI。"];
+      record.finishedAt = new Date().toISOString(); store.put("assistant-plan", record);
+      live?.publish(request.requestId, { kind: "done", state: record.state, recordId: record.id });
+      return record;
+    }
     step("context", "整理工作区记录与可用工具", "running");
     const context = { ...buildContext(store, project, project ? lifecycleOf(project) : undefined, await contextOptions(config)), offered: request.tools };
     // Attached images are named in the prompt by order and record handle, so the model can relate what it sees to the record.
     const handleOf = (id: string) => [...context.handles].find(([, h]) => h.id === id)?.[0] ?? "unreferenced";
-    const prompt = buildPrompt(request.message, context) + (request.attachments?.length ? ["", "<attached-images>",
+    const hint = triage?.lane && triage.lane !== "out-of-scope" ? ["", "<triage>",
+      `快速决策模型判断这个请求最可能属于工具通道：${triage.lane}（置信 ${triage.confidence}）。只作参考：以用户的请求和工作区记录为准，判断不同可以忽略。`,
+      "</triage>"].join("\n") : "";
+    const prompt = buildPrompt(request.message, context) + hint + (request.attachments?.length ? ["", "<attached-images>",
       ...request.attachments.map((x, i) => `图像 ${i + 1}：${handleOf(x.recordId)} 的${x.which === "baseline" ? "基准" : "候选"}${IMAGE_KIND[x.file] ?? "原生图像"}（原生工具生成，按摘要登记）`),
       "图像只用于理解；结论仍以记录里的原生检查为准。", "</attached-images>"].join("\n") : "");
     step("context", "整理工作区记录与可用工具", "done", `${context.handles.size} 个可引用记录 · ${Math.round(Buffer.byteLength(prompt) / 1024)} KB`);
@@ -630,6 +655,16 @@ export async function createAiPlan(store: Store, config: Config, input: unknown,
       try {
         Object.assign(record, interpretOutput(r.answer, context));
         await screenCode(config, record, " AI 计划");
+        if (triage) {
+          // Second opinion: a confident lane the plan does not use, or a likely relaxation the plan's diff does not show,
+          // is flagged for the person; nothing is changed or blocked.
+          const lanes = record.plans.map(p => laneOf(p.tool)).filter(l => !["create-project", "update-requirements"].includes(l));
+          const agreement = triage.lane && triage.lane !== "out-of-scope" && lanes.length ? lanes.includes(triage.lane) : null;
+          const relaxMismatch = triage.relaxesProbability >= 0.7 && !record.plans.some(p => p.changes.some(c => c.direction === "relaxed"));
+          record.triage = { skippedModel: false, hinted: Boolean(hint), agreement, relaxMismatch };
+          if (agreement === false) record.interpretation.push(`决策模型认为更可能是「${triage.lane}」，与 AI 计划的工具不同；请核对计划是否对应你的意图。`);
+          if (relaxMismatch) record.interpretation.push(`决策模型认为这个请求可能在放宽要求（${triage.relaxesProbability}），但计划里没有放宽项；请核对。`);
+        }
         step("validate", "按 schema 校验计划与引用", "done", `${record.plans.length} 个计划${record.answer ? ` · ${record.answer.citations.length} 个引用` : ""}`);
       } catch (error) {
         if (record.state === "done") record.state = "invalid-output";
