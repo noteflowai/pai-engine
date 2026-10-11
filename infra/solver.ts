@@ -19,7 +19,7 @@ export const SOLVER = {
   /** Engine images (ADR 0004): one toolchain image per engine, separate from the Batch job images and their lifecycle. */
   engineRepository: "pai-engines",
 };
-export const ENGINE_IMAGES = ["cad", "physics", "blender", "robots", "newton", "logistics"] as const;
+export const ENGINE_IMAGES = ["cad", "physics", "blender", "robots", "newton", "logistics", "decider"] as const;
 const OPERATOR_ROLE = (account: string, region: string) => `cdk-hnb659fds-pai-operator-role-${account}-${region}`;
 
 /**

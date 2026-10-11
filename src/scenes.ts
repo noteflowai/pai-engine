@@ -1,4 +1,4 @@
-import { runEngine, toolDigest } from "./kernel/engine-runtime.js";
+import { backendFor, runEngine, toolDigest } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
@@ -95,7 +95,7 @@ export interface SceneReview {
     /** Cross-engine conformance of the exported USD: Newton imports it and matches the MJCF kinematics and masses. */
     newton?: { version: string; passed: boolean; configurations: number; fkPositionM: number; fkOrientationDeg: number; checks: { id: string; passed: boolean }[] } | { error: string } };
   /** Conformance of the simulated arm with the official model Strands Robots loads (pinned Menagerie, offline, sim only). */
-  robots?: { robot: string; strandsRobots: string; menagerieCommit: string; passed: boolean; configurations: number; isolation: "bwrap-unshare-all";
+  robots?: { robot: string; strandsRobots: string; menagerieCommit: string; passed: boolean; configurations: number; isolation: "bwrap-unshare-all" | "engine-container";
     checks: { id: string; passed: boolean; observed: unknown; limit?: number; unit?: string }[] } | { error: string };
 }
 export type PlantLayoutValue = z.infer<typeof PlantLayout>;
@@ -285,9 +285,15 @@ async function robotsCheck(config: Config, record: SceneReview, target: string, 
     const argv = ["/usr/bin/env", "MUJOCO_GL=disable", "STRANDS_MESH=false", `ROBOT_DESCRIPTIONS_CACHE=${config.robotsAssets}`,
       python, "-I", script, "--mjcf", join(target, "scene.xml"), "--robot", "ur5e", "--assets", config.robotsAssets!, "--commit", pins.menagerie.commit, "--output", output];
     const bwrap = config.bwrap ?? "bwrap";
-    const r = await runEngine(config, { engine: "robots", program: bwrap, args: sandboxArgs(config, { python, venv, native: join(config.repository, "native") },
-      { readOnly: [config.robotsAssets!, target], writable: [scratch] }, argv), cwd: "/", mounts: { read: [config.robotsAssets!, target], write: [scratch] }, timeoutMs: 300_000, untrusted: true });
-    record.receipts.push({ adapter: "strands-robots", command: ["bwrap", "--unshare-all", "python", "robots_crosscheck.py", "--robot", "ur5e"], startedAt: r.startedAt, finishedAt: r.finishedAt,
+    const mounts = { read: [config.robotsAssets!, target], write: [scratch] };
+    // In an engine container the container is the isolation (no network, only these mounts, clean environment; the
+    // script pins its own environment); otherwise bubblewrap as before.
+    const contained = backendFor(config, { engine: "robots", program: python, args: [], cwd: "/", mounts, timeoutMs: 0 }) === "container";
+    const r = contained
+      ? await runEngine(config, { engine: "robots", program: python, args: argv.slice(argv.indexOf(python) + 1), cwd: scratch, mounts, timeoutMs: 300_000 })
+      : await runEngine(config, { engine: "robots", program: bwrap, args: sandboxArgs(config, { python, venv, native: join(config.repository, "native") },
+        { readOnly: [config.robotsAssets!, target], writable: [scratch] }, argv), cwd: "/", mounts, timeoutMs: 300_000, untrusted: true });
+    record.receipts.push({ adapter: "strands-robots", command: contained ? ["container", "python", "robots_crosscheck.py", "--robot", "ur5e"] : ["bwrap", "--unshare-all", "python", "robots_crosscheck.py", "--robot", "ur5e"], startedAt: r.startedAt, finishedAt: r.finishedAt,
       exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout),
       sourceDigests: { script: sha256(await readFile(script)), lock: sha256(await readFile(join(config.repository, "native/robots-requirements.txt"))), menagerie: pins.menagerie.commit } });
     if (r.exitCode !== 0) return fail("ROBOTS_CROSSCHECK_FAILED", `isolated run exited ${r.exitCode}; see the retained receipt`);
@@ -300,7 +306,7 @@ async function robotsCheck(config: Config, record: SceneReview, target: string, 
     publish(requestId, { kind: "step", id: "strands-robots", label, status: j.passed ? "done" : "failed", which: "candidate",
       detail: j.passed ? `${j.configurations} 个构型一致` : `不一致：${failed.join("、")}` });
     return { robot: j.robot, strandsRobots: j.strandsRobots, menagerieCommit: j.menagerieCommit, passed: j.passed, configurations: j.configurations,
-      isolation: "bwrap-unshare-all", checks: j.checks };
+      isolation: contained ? "engine-container" : "bwrap-unshare-all", checks: j.checks };
   } catch { return fail("ROBOTS_CROSSCHECK_ERROR", "the cross-check could not complete; see the retained receipt"); }
 }
 

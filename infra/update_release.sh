@@ -160,6 +160,41 @@ PY
   printf "PAI_ENGINE_CONTAINERS=%s\nPAI_ENGINE_IMAGES='%s'\nPAI_ENGINE_TOOLS_DIR=/var/lib/pai/data/state/tools\nPAI_CONTAINERS_ROOT=%s\nPAI_ENGINE_CONTAINER_CLI=podman\nPAI_ENGINE_GPU=%s\n" \
     "$PAI_ENGINE_CONTAINERS" "$PAI_ENGINE_IMAGES" "$CT" "$GPU" >> /etc/pai/runtime.env
 fi
+# Decider in its engine container (ADR 0004) when listed in PAI_ENGINE_CONTAINERS: same unit name, same loopback port,
+# same offline model on the data volume (mounted); host network namespace so it can listen on 127.0.0.1 only.
+case ",${PAI_ENGINE_CONTAINERS:-}," in *,decider,*)
+  if [ "${PAI_DECIDER:-}" = "1" ] && [ "${GPU:-0}" = "1" ]; then
+    DIMG=$(printf '%s' "$PAI_ENGINE_IMAGES" | python3 -c "import json,sys;print(json.load(sys.stdin)['decider'])")
+    HFH=/var/lib/pai/data/state/tools/decider-hf
+    cat > /etc/systemd/system/pai-decider.service <<UNIT
+[Unit]
+Description=PAI Strands Decider in its engine container (suggestions only; loopback)
+After=network-online.target
+[Service]
+User=pai
+Group=pai
+Environment=HOME=$CT XDG_CONFIG_HOME=$CT/config XDG_RUNTIME_DIR=$CT/run XDG_DATA_HOME=$CT
+ExecStart=/usr/bin/podman --root $CT/storage --runroot $CT/run --storage-driver overlay --storage-opt overlay.ignore_chown_errors=true --cgroup-manager cgroupfs --events-backend none --log-level error \
+  run --rm --replace --name pai-decider --network host --cap-drop ALL --security-opt no-new-privileges --cgroups disabled --user 0:0 \
+  --tmpfs /tmp:rw,nosuid,nodev,size=2g --device nvidia.com/gpu=all -e HF_HOME=$HFH -v $HFH:$HFH:rw \
+  --entrypoint /opt/pai/tools/decider-1/bin/strands-decider $DIMG serve $MODEL --host 127.0.0.1 --port 8801 --device cuda --model-name strands-decider-2B-qwen3.5-v1-2610
+ExecStop=/usr/bin/podman --root $CT/storage --runroot $CT/run --storage-opt overlay.ignore_chown_errors=true --log-level error stop -t 10 pai-decider
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pai/data
+PrivateTmp=true
+ProtectHome=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload && systemctl restart pai-decider.service
+    # Ready once it answers HTTP at all (the model loads before the server listens).
+    for i in $(seq 1 60); do [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:8801/docs || true)" != "000" ] && break; sleep 3; done
+    systemctl is-active pai-decider.service
+  fi ;;
+esac
 # AI engine (pinned Kiro CLI + bounded executor); skipped only if the stack predates the AI resources.
 if [ -n "${PAI_EXECUTOR_KEY:-}" ] && [ -n "${PAI_AI_KEYS_ARN:-}" ]; then
   bash "$RELEASE/infra/install_ai.sh"
