@@ -124,6 +124,13 @@ if [ -n "${PAI_ENGINE_CONTAINERS:-}" ] && [ -n "${PAI_ENGINE_IMAGES:-}" ]; then
   # tools/runtime-pins.json) generates the CDI spec, regenerated on every release so it follows driver updates.
   GPU=0
   if nvidia-smi -L >/dev/null 2>&1; then
+    # OptiX for Blender Cycles: libnvoptix ships in the driver's GL libraries (Ubuntu archive), exactly the installed
+    # driver version; the CDI spec generated below then mounts it into GPU containers.
+    DRV=$(dpkg-query -W -f='${Version}' libnvidia-compute-580-server 2>/dev/null || true)
+    if [ -n "$DRV" ] && [ "$(dpkg-query -W -f='${Version}' libnvidia-gl-580-server 2>/dev/null)" != "$DRV" ]; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "libnvidia-gl-580-server=$DRV" >/dev/null 2>&1 \
+        || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "libnvidia-gl-580-server=$DRV" >/dev/null; }
+    fi
     NV=$(python3 -c "import json;p=json.load(open('$RELEASE/tools/runtime-pins.json'))['nvidiaContainerToolkit'];print(p['package'],p['version'],p['repository'],p['keyUrl'],p['keyFingerprint'])")
     read -r NV_PKG NV_VER NV_REPO NV_KEY NV_FPR <<< "$NV"
     KEYRING=/usr/share/keyrings/nvidia-container-toolkit.gpg
