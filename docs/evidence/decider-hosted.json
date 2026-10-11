@@ -1,0 +1,85 @@
+{
+  "schema": "pai-aws-decider-hosted-1",
+  "site": "https://pai.oneai.host",
+  "checkedAt": "2026-10-11T07:43:30.631Z",
+  "build": "v0.9.0 · d16bc21",
+  "release": "6f0b48212c4cfadd38ae7d1c8d9e876db3358911573469b2a0ac783a372b453a",
+  "sourceCommit": "d16bc21ec078eea2a21936d4c4ed10577ae389ed",
+  "host": {
+    "instanceType": "g6.xlarge",
+    "gpu": "NVIDIA L4",
+    "driver": "580.178.04",
+    "deciderGpuMemoryMiB": 4020,
+    "service": "pai-decider.service (127.0.0.1:8801, HF_HUB_OFFLINE=1)",
+    "dataVolumeGiB": 60,
+    "instanceReplaced": false
+  },
+  "engine": {
+    "id": "strands-decider",
+    "authority": "suggestion",
+    "available": true
+  },
+  "outOfScope": {
+    "state": "done",
+    "modelUsed": false,
+    "triage": {
+      "skippedModel": true,
+      "hinted": false,
+      "agreement": null,
+      "relaxMismatch": false
+    },
+    "suggestion": {
+      "lane": "out-of-scope",
+      "confidence": 0.972,
+      "latencyMs": 193,
+      "model": "strands-decider-2B-qwen3.5-v1-2610",
+      "authority": "none"
+    },
+    "attempts": []
+  },
+  "inScope": {
+    "state": "done",
+    "modelUsed": true,
+    "triage": {
+      "skippedModel": false,
+      "hinted": false,
+      "agreement": null,
+      "relaxMismatch": false
+    },
+    "suggestion": {
+      "lane": null,
+      "confidence": 0.352,
+      "latencyMs": 191,
+      "model": "strands-decider-2B-qwen3.5-v1-2610",
+      "authority": "none"
+    },
+    "attempts": [
+      "kiro-primary:quota",
+      "kiro-backup:quota",
+      "kiro-backup2:succeeded"
+    ],
+    "plans": [
+      "cad-review",
+      "cad-sweep",
+      "cad-review"
+    ]
+  },
+  "uiAskAnywayAt390px": true,
+  "aiLedger": {
+    "before": {
+      "finished": 21,
+      "uncertain": 4
+    },
+    "after": {
+      "finished": 24,
+      "uncertain": 4
+    },
+    "note": "+3 = the in-scope request only (two quota failures, one success); out-of-scope requests spent none; no reset, no replay"
+  },
+  "infra": {
+    "albRulesUnchanged": true,
+    "wordPressPublicStatus": 200,
+    "targetHealth": "healthy"
+  },
+  "promptOrAnswerTextRecorded": false
+}
