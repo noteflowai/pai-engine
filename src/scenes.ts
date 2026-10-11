@@ -1,9 +1,10 @@
+import { runEngine } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { command, NativeAdapters, writePrivate } from "./adapters.js";
+import { NativeAdapters, writePrivate } from "./adapters.js";
 import type { Config } from "./config.js";
 import { Id, type Feedback, type Project, type Receipt, type DiffResult } from "./contracts.js";
 import { canonical, DomainError, sha256 } from "./domain.js";
@@ -211,7 +212,8 @@ export async function reviewScene(store: Store, config: Config, project: Project
         const args = robot ? ["-I", script, "--input", join(directory, `${name}-input.json`), "--output", target]
           : ["--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "2", "--python", script,
             "--", "--input", join(directory, `${name}-input.json`), "--output", target];
-        const r = await command(engine, args, config.repository, undefined, plant ? 900_000 : robot ? 300_000 : 120_000, observe);
+        const r = await runEngine(config.repository, { engine: robot ? "physics" : "blender", program: engine, args, cwd: config.repository,
+          mounts: { read: [join(directory, `${name}-input.json`)], write: [target] }, timeoutMs: plant ? 900_000 : robot ? 300_000 : 120_000, onLine: observe, gpu: robot ? "none" : "preferred" });
         await observed;
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
         await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
@@ -282,8 +284,8 @@ async function robotsCheck(config: Config, record: SceneReview, target: string, 
     const argv = ["/usr/bin/env", "MUJOCO_GL=disable", "STRANDS_MESH=false", `ROBOT_DESCRIPTIONS_CACHE=${config.robotsAssets}`,
       python, "-I", script, "--mjcf", join(target, "scene.xml"), "--robot", "ur5e", "--assets", config.robotsAssets!, "--commit", pins.menagerie.commit, "--output", output];
     const bwrap = config.bwrap ?? "bwrap";
-    const r = await command(bwrap, sandboxArgs(config, { python, venv, native: join(config.repository, "native") },
-      { readOnly: [config.robotsAssets!, target], writable: [scratch] }, argv), "/", undefined, 300_000);
+    const r = await runEngine(config.repository, { engine: "robots", program: bwrap, args: sandboxArgs(config, { python, venv, native: join(config.repository, "native") },
+      { readOnly: [config.robotsAssets!, target], writable: [scratch] }, argv), cwd: "/", mounts: { read: [config.robotsAssets!, target], write: [scratch] }, timeoutMs: 300_000, untrusted: true });
     record.receipts.push({ adapter: "strands-robots", command: ["bwrap", "--unshare-all", "python", "robots_crosscheck.py", "--robot", "ur5e"], startedAt: r.startedAt, finishedAt: r.finishedAt,
       exitCode: r.exitCode, stdoutSha256: sha256(r.stdout),
       sourceDigests: { script: sha256(await readFile(script)), lock: sha256(await readFile(join(config.repository, "native/robots-requirements.txt"))), menagerie: pins.menagerie.commit } });
@@ -310,7 +312,7 @@ async function newtonCheck(config: Config, record: SceneReview, target: string, 
   const script = join(config.repository, "native/usd_newton_check.py"), label = "Newton 交叉校验 OpenUSD（关节树、质量、33 个构型的正运动学）";
   publish(requestId, { kind: "step", id: "newton-usd", label, status: "running", which: "candidate" });
   const args = [script, "--usd", join(target, "scene.usda"), "--mjcf", join(target, "scene.xml"), "--output", join(target, "newton.json")];
-  const r = await command(config.newtonPython!, args, tmpdir(), undefined, 300_000);
+  const r = await runEngine(config.repository, { engine: "newton", program: config.newtonPython!, args, cwd: tmpdir(), mounts: { read: [target], write: [target] }, timeoutMs: 300_000, gpu: "preferred" });
   record.receipts.push({ adapter: "newton-usd", command: ["python", "usd_newton_check.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
     stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)), lock: sha256(await readFile(join(config.repository, "native/newton-requirements.txt"))) } });
   if (r.exitCode !== 0) {

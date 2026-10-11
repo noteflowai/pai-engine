@@ -5,11 +5,12 @@
  * EvalArc comparison, feedback recheck and release gate as the other lanes. Steady RANS is a design comparison, not a
  * wind-tunnel validation.
  */
+import { runEngine } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { command, NativeAdapters, writePrivate } from "./adapters.js";
+import { NativeAdapters, writePrivate } from "./adapters.js";
 import type { Config } from "./config.js";
 import { Id, type Project, type Receipt, type DiffResult } from "./contracts.js";
 import { canonical, DomainError, sha256 } from "./domain.js";
@@ -127,7 +128,8 @@ export async function reviewAero(store: Store, config: Config, project: Project,
           }).catch(() => { /* presentation only */ });
         };
         const args = ["-I", native("cfd_review.py"), "--input", inputFile, "--output", target];
-        const r = await command(config.physicsPython!, args, config.repository, undefined, 7_200_000, observe);
+        const r = await runEngine(config.repository, { engine: "physics", program: config.physicsPython!, args, cwd: config.repository, mounts: { read: [inputFile], write: [target] },
+          timeoutMs: 7_200_000, onLine: observe, network: config.solverBatch?.cfdJobDefinition ? "aws" : "none" });
         await observed;
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
         await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);

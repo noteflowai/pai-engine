@@ -50,6 +50,83 @@ flowchart LR
 | **制品与流程** | 不可变、自带验收基准的算法/模型版本（第一个：场外物流规划，OR-Tools），JSON 配置的业务流程，逐节点证据与用量。见 [ADR 0001](docs/adr/0001-artifacts-and-workflows.md) |
 | **对外服务** | 邀请制租户：维护者把**全部制品已发布**的流程提供给指定租户；运行按租户隔离，并发与日上限，用量按租户汇总。**不收费**。见 [API](docs/API.md#tenants-v1-invite-only) |
 
+## 部署架构
+
+```mermaid
+flowchart TB
+  subgraph L1["① 入口"]
+    direction LR
+    User(["用户<br/>浏览器 · PWA · 桌面"]):::client
+    Agent(["外部 Agent · 租户<br/>OAuth client credentials"]):::client
+    ALB["Application Load Balancer<br/>精确 HTTPS Origin · JWT 校验"]:::edge
+    Cog["Amazon Cognito<br/>OIDC"]:::edge
+    User --> ALB
+    Agent --> ALB
+    ALB <-.-> Cog
+  end
+
+  subgraph L2["② 计算节点：EC2 g6.xlarge · NVIDIA L4（同一套镜像可换成 EKS 集群）"]
+    direction TB
+    Kernel["<b>PAI Engine 内核</b><br/>本体 · 动作 · 生命周期 · 引擎运行时（足迹检查）<br/><i>EC2：systemd 服务 · EKS：Deployment</i>"]:::core
+    subgraph RUN["一次性引擎容器（无网络 · 只读根）<br/><i>Podman ⇄ EKS Job</i>"]
+      direction LR
+      CAD["CadQuery · OCCT<br/>AI 代码 → gVisor"]:::engine
+      PHY["MuJoCo · Gmsh<br/>CalculiX · BoTorch"]:::engine
+      ORT["OR-Tools<br/>制品"]:::engine
+      BLD["Blender Cycles<br/>GPU · OptiX"]:::gpu
+      RBT["Strands Robots<br/>Newton · GPU · Warp"]:::gpu
+    end
+    Decider["Strands Decider 2B<br/>系统一分诊 · GPU · 127.0.0.1<br/><i>EKS：GPU 节点组</i>"]:::gpu
+    EBS[("加密 EBS 60 GiB<br/>SQLite · 回执 · 账本<br/><i>EKS：PVC</i>")]:::data
+    Kernel --> RUN
+    Kernel --> Decider
+    Kernel --> EBS
+  end
+
+  subgraph L3["③ AWS 托管服务"]
+    direction LR
+    Batch["AWS Batch · Fargate<br/>FEA · OpenFOAM · FreeCAD CAM"]:::engine
+    Bedrock["Amazon Bedrock · Kiro<br/>AI 引擎（系统二）"]:::ai
+    KMS["AWS KMS + RFC 3161<br/>发布签名"]:::sec
+    ECR[("Amazon ECR<br/>按摘要固定 · 扫描 · 签名")]:::data
+    Ops["Secrets Manager · SSM<br/>AWS Backup 每日"]:::sec
+  end
+
+  ALB ==>|"仅 ALB 安全组 → :4317"| Kernel
+  Kernel -->|"重计算"| Batch
+  Kernel -->|"提议"| Bedrock
+  Kernel -->|"封存"| KMS
+  ECR -. 镜像 .-> RUN
+  ECR -. 镜像 .-> Batch
+
+  classDef client fill:#f8fafc,stroke:#64748b,color:#0f172a
+  classDef edge fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+  classDef core fill:#0f766e,stroke:#115e59,color:#ffffff
+  classDef gpu fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef engine fill:#ecfeff,stroke:#0891b2,color:#164e63
+  classDef data fill:#fef9c3,stroke:#ca8a04,color:#713f12
+  classDef sec fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+  classDef ai fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  style L1 fill:#ffffff,stroke:#cbd5e1
+  style L2 fill:#f0fdfa,stroke:#0f766e,stroke-width:2px
+  style L3 fill:#ffffff,stroke:#cbd5e1
+  style RUN fill:#ffffff,stroke:#0891b2,stroke-dasharray: 4 3
+```
+
+- **一个内核，三种后端**：所有原生引擎都经过引擎运行时执行，调用时声明要读写哪些文件，运行前强制检查。后端可以是本机进程、容器或 AWS Batch，换后端不改变计算内容。见 [ADR 0004](docs/adr/0004-engine-runtime-containers-gpu.md)。
+- **GPU 只用在不改变裁决数值的地方**：Decider 分诊、Blender 渲染、Newton 交叉校验。MuJoCo、CalculiX、OCCT、OR-Tools 和 OpenFOAM 的结论保持在 CPU 上计算，便于复现。
+- **EC2 或 EKS**：同一套镜像和引擎运行时，可以从单台 GPU EC2 换到 EKS：
+  - 内核改为 Deployment；
+  - Decider 部署到带 NVIDIA device plugin 的 GPU 节点组；
+  - 每次引擎运行改为一个 Kubernetes Job，模型写的代码用 gVisor RuntimeClass 隔离；
+  - 数据卷改为 PVC。
+  
+  ALB、Cognito、Batch 和 KMS 不变。
+- **现状（2026-10-11）**：
+  - 已上线：托管站点运行在 g6.xlarge 上，Decider 在 GPU 上运行；FEA、CFD 和 CAM 在 Batch 容器里运行；引擎运行时和足迹检查已合入，目前使用进程后端。
+  - 按 ADR 0004 分步推进：宿主机容器后端、Blender 与 Newton 改用 GPU、镜像签名。
+  - EKS 是已设计好的替换路径，目前没有部署。
+
 ## 能力
 
 | 方面 | 实现（只写跑过的结果） | 文档 |
