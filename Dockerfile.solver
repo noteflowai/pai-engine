@@ -8,7 +8,8 @@ ARG ENGINE_BASE
 FROM ${ENGINE_BASE}
 USER 0:0
 COPY --chmod=0644 native/cad_point.py native/cad_recipe.py native/cad_bearing.py native/cad_checks.py native/fea_core.py native/fea_bracket.py native/fea_pillow.py native/solver_job.py /opt/pai/native/
-RUN /opt/pai/tools/calculix-2.21/ccx -v 2>&1 | grep -q "Version 2.21" \
+RUN chmod 0755 /opt/pai/native \
+ && /opt/pai/tools/calculix-2.21/ccx -v 2>&1 | grep -q "Version 2.21" \
  && /opt/pai/tools/physics-1/bin/python -c "import gmsh, numpy, boto3; assert gmsh.__version__ == '4.15.2'" \
  && /opt/pai/tools/cadquery-2.8.0/bin/python -W ignore -c "import cadquery as cq; assert cq.__version__ == '2.8.0'"
 ARG PAI_IMAGE_VERSION=dev

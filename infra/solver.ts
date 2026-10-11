@@ -80,7 +80,8 @@ export class SolverStack extends cdk.Stack {
             // Immutable tag per source hash: an existing image is never rebuilt or replaced.
             `if aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$TAG >/dev/null 2>&1; then echo "exists $TAG"; else `
               + "docker build --platform linux/amd64 -f Dockerfile.solver --build-arg ENGINE_BASE=$ENGINE_REPO:$ENGINE_PHYSICS_TAG --build-arg PAI_IMAGE_VERSION=$TAG -t $REPO:$TAG . && docker push $REPO:$TAG; fi",
-            "docker run --rm --network none --entrypoint /opt/pai/tools/physics-1/bin/python $REPO:$TAG -c \"import gmsh; print('gmsh', gmsh.__version__)\" || true",
+            // Smoke as the job user: the job script must be readable and its toolchain importable, or the build fails.
+            "docker run --rm --network none --read-only --tmpfs /tmp --entrypoint /opt/pai/tools/physics-1/bin/python $REPO:$TAG -I -c \"import gmsh, boto3; open('/opt/pai/native/solver_job.py').read(); print('gmsh', gmsh.__version__)\"",
             // CFD image: FROM the digest-pinned OpenCFD OpenFOAM v2512 image (Dockerfile.cfd).
             `if aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$CFD_TAG >/dev/null 2>&1; then echo "exists $CFD_TAG"; `
               + `elif [ -n "$CFD_REUSE" ] && aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$CFD_REUSE >/dev/null 2>&1; then docker buildx imagetools create -t $REPO:$CFD_TAG $REPO:$CFD_REUSE && echo "reused $CFD_REUSE as $CFD_TAG"; else `
