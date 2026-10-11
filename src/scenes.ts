@@ -7,6 +7,7 @@ import { command, NativeAdapters, writePrivate } from "./adapters.js";
 import type { Config } from "./config.js";
 import { Id, type Feedback, type Project, type Receipt, type DiffResult } from "./contracts.js";
 import { canonical, DomainError, sha256 } from "./domain.js";
+import { nativeRun } from "./kernel/native-run.js";
 import { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
 import { familyOf, type CadReview } from "./cad.js";
@@ -144,138 +145,123 @@ export async function reviewScene(store: Store, config: Config, project: Project
     request, requirementDigest: sha256(canonical({ projectRequirements: project.requirements, sceneRequirements: request.requirements })),
     state: "running", createdAt: new Date().toISOString(), feedbackId: request.feedbackId,
     receipts: [], sourceDigests: {}, files: {}, scope: "generated-static-geometry", physicalValidation: false };
-  const claimed = store.claim(request.requestId, sha256(canonical({ kind: "blender-scene", projectId: project.id, request })), record, "scene-review");
-  if (claimed !== record.id) return store.get<SceneReview>("scene-review", claimed)!;
-  publish(request.requestId, { kind: "record", recordKind: "scene-review", recordId: record.id });
   const directory = join(config.state, "scenes", record.id);
-  try {
-    if (project.revision !== request.projectRevision) throw new DomainError("REVISION_CONFLICT", "Freeze the current requirement revision");
-    if (request.feedbackId) {
-      const f = store.get<Feedback>("feedback", request.feedbackId);
-      const original = f ? store.get<SceneReview>("scene-review", f.runId) : undefined;
-      if (!f || f.evidenceKind !== "blender-scene" || f.projectId !== project.id
-          || !["fix-proposed", "no-change-with-reason"].includes(f.status)
-          || canonical(original?.request.requirements) !== canonical(request.requirements)) {
-        throw new DomainError("INVALID_RECHECK", "Scene recheck must bind the same feedback and unchanged static constraints");
+  return nativeRun({ store, live, project, kind: "scene-review", evidenceKind: "blender-scene", request, record, failure: "BLENDER_FAILED",
+    recheck: { message: "Scene recheck must bind the same feedback and unchanged static constraints", sameRequirements: original => canonical(original.request.requirements) === canonical(request.requirements) },
+    work: async record => {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const plant = request.variant === "plant", robot = request.variant === "robot-cell";
+      const script = join(config.repository, plant ? "native/blender_plant.py" : robot ? "native/robot_sim.py" : "native/blender_workcell.py");
+      const engine = robot ? config.physicsPython! : config.blender!;
+      const adapters = new NativeAdapters(config);
+      const scriptHash = sha256(await readFile(script));
+      const nativeBefore = await adapters.sourceDigests();
+      const engineKey = robot ? "physics-python" : "blender-binary";
+      record.sourceDigests = { ...nativeBefore, [plant ? "blender-plant.py" : robot ? "robot-sim.py" : "blender-workcell.py"]: scriptHash, [engineKey]: sha256(await readFile(engine)),
+        ...(robot ? { "physics-lock": sha256(await readFile(join(config.repository, "native/physics-requirements.txt"))) } : {}) };
+      let toolInput: { stl: string; sha256: string; brepMassG: number; motorAxisMm: number; payloadKg: number } | undefined;
+      if (robot && request.tool) {
+        // Only an accepted part of this project, and only the exact file its review measured.
+        const cad = store.get<CadReview>("cad-review", request.tool.cadReviewId);
+        if (!cad || cad.projectId !== project.id || cad.state !== "completed" || cad.verdict !== "accepted-cad-part") {
+          throw new DomainError("TOOL_NOT_ACCEPTED", "The end-effector must be an accepted CAD part of this project", 422);
+        }
+        // The gripper mount assumes the bracket frame (motor axis); other part families have no tool interface yet.
+        if (familyOf(cad.request) !== "nema17-bracket") throw new DomainError("TOOL_FAMILY", "Only a NEMA 17 bracket can be mounted on the gripper", 422);
+        const stl = join(config.state, "cad", cad.id, "candidate", "part.stl");
+        const stlSha256 = sha256(await readFile(stl));
+        const brepMassG = Number(cad.candidate?.checks.find(c => c.id === "mass")?.observed);
+        const motorAxisMm = Number((cad.candidate as { parameters?: { motorAxisHeight?: number } } | undefined)?.parameters?.motorAxisHeight ?? cad.sandbox?.motorAxisZ);
+        if (stlSha256 !== cad.files["candidate/part.stl"]) throw new DomainError("TOOL_DIGEST", "The CAD part file differs from its review record", 422);
+        if (!(brepMassG > 0) || !(motorAxisMm > 0)) throw new DomainError("TOOL_CONTEXT", "The CAD part does not declare its mass and motor axis", 422);
+        toolInput = { stl, sha256: stlSha256, brepMassG, motorAxisMm, payloadKg: request.tool.payloadKg };
+        record.tool = { cadReviewId: cad.id, stlSha256, brepMassG, payloadKg: request.tool.payloadKg, motorAxisMm };
+        record.sourceDigests["tool-stl"] = stlSha256;
       }
-    }
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const plant = request.variant === "plant", robot = request.variant === "robot-cell";
-    const script = join(config.repository, plant ? "native/blender_plant.py" : robot ? "native/robot_sim.py" : "native/blender_workcell.py");
-    const engine = robot ? config.physicsPython! : config.blender!;
-    const adapters = new NativeAdapters(config);
-    const scriptHash = sha256(await readFile(script));
-    const nativeBefore = await adapters.sourceDigests();
-    const engineKey = robot ? "physics-python" : "blender-binary";
-    record.sourceDigests = { ...nativeBefore, [plant ? "blender-plant.py" : robot ? "robot-sim.py" : "blender-workcell.py"]: scriptHash, [engineKey]: sha256(await readFile(engine)),
-      ...(robot ? { "physics-lock": sha256(await readFile(join(config.repository, "native/physics-requirements.txt"))) } : {}) };
-    let toolInput: { stl: string; sha256: string; brepMassG: number; motorAxisMm: number; payloadKg: number } | undefined;
-    if (robot && request.tool) {
-      // Only an accepted part of this project, and only the exact file its review measured.
-      const cad = store.get<CadReview>("cad-review", request.tool.cadReviewId);
-      if (!cad || cad.projectId !== project.id || cad.state !== "completed" || cad.verdict !== "accepted-cad-part") {
-        throw new DomainError("TOOL_NOT_ACCEPTED", "The end-effector must be an accepted CAD part of this project", 422);
+      const cellOf = (name: "baseline" | "candidate") => name === "baseline" ? ROBOT_REFERENCE : (request as { cell: z.infer<typeof RobotCell> }).cell;
+      for (const [name, variant] of [["baseline", plant ? "plant" : robot ? "robot-cell" : "clear"], ["candidate", request.variant]] as const) {
+        const target = join(directory, name);
+        const label = robot ? `MuJoCo ${name === "baseline" ? "参考工作单元" : "候选工作单元"}（${ROBOT_SEEDS.length} 个种子 · 速度 ${Math.round(cellOf(name).speedFraction * 100)}%）` : plant ? `Blender ${name === "baseline" ? "参考产线" : "候选产线"}（${(name === "baseline" ? PLANT_REFERENCE : (request as { layout: z.infer<typeof PlantLayout> }).layout).stations} 工位）`
+          : `Blender ${name === "baseline" ? "基准" : "候选"}场景（${variant === "occluded" ? "遮挡" : "无遮挡"}）`;
+        publish(request.requestId, { kind: "step", id: `blender-${name}`, label, status: "running", which: name });
+        let observed = Promise.resolve();
+        const observe = (line: string) => {
+          if (!line.startsWith("PAI_EVENT ")) return;
+          observed = observed.then(async () => {
+            const parsed = NativeEvent.safeParse((() => { try { return JSON.parse(line.slice(10)); } catch { return undefined; } })());
+            if (!parsed.success) return;
+            const e = parsed.data;
+            if (e.type === "stage") {
+              const digest = sha256(await readFile(join(target, e.file)));
+              const stage: SceneStage = { index: e.index, id: e.id, label: e.label, file: e.file, sha256: digest, objects: e.objects };
+              record.stages = { ...record.stages, [name]: [...(record.stages?.[name] ?? []), stage] };
+              store.put("scene-review", record);
+              publish(request.requestId, { kind: "stage", which: name, index: e.index, id: e.id, label: e.label, objects: e.objects,
+                url: `/api/scenes/${record.id}/stages/${name}/${e.index}`, sha256: digest });
+            } else if (e.type === "ray") {
+              const { type: _type, ...ray } = e;
+              record.rays = { ...record.rays, [name]: { ...ray, frame: "gltf-y-up" } };
+              store.put("scene-review", record);
+              publish(request.requestId, { kind: "ray", which: name, origin: e.origin, target: e.target, hit: e.hit, firstHit: e.firstHit, visible: e.visible });
+            } else {
+              publish(request.requestId, { kind: "render", which: name, sample: e.sample, samples: e.samples });
+            }
+          }).catch(() => { /* Presentation events never fail the native review. */ });
+        };
+        await writePrivate(join(directory, `${name}-input.json`), JSON.stringify(robot
+          ? { cell: cellOf(name), requirements: request.requirements, seeds: ROBOT_SEEDS, ...(toolInput ? { tool: toolInput } : {}) }
+          : plant
+          ? { variant, layout: name === "baseline" ? PLANT_REFERENCE : (request as { layout: unknown }).layout, requirements: request.requirements, render: name === "baseline" ? "preview" : "hero" }
+          : { variant, requirements: request.requirements }));
+        const args = robot ? ["-I", script, "--input", join(directory, `${name}-input.json`), "--output", target]
+          : ["--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "2", "--python", script,
+            "--", "--input", join(directory, `${name}-input.json`), "--output", target];
+        const r = await command(engine, args, config.repository, undefined, plant ? 900_000 : robot ? 300_000 : 120_000, observe);
+        await observed;
+        await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
+        await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
+        record.receipts.push({ adapter: robot ? "mujoco-native" : "blender-native", command: [robot ? "python" : "blender", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
+          exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { "script": scriptHash } });
+        store.put("scene-review", record);
+        publish(request.requestId, { kind: "step", id: `blender-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name,
+          detail: `exit ${r.exitCode}` });
+        if (r.exitCode !== 0) throw new DomainError("BLENDER_FAILED", "Native scene production failed; retain receipts and inspect local artifacts", 422);
+        record[name] = SceneChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
+        if (record[name]!.variant !== variant) throw new DomainError("SCENE_CONTEXT", "Native scene variant mismatch");
+        const measured = record[name]!;
+        if (plant && (measured.variant !== "plant" || canonical(measured.layout) !== canonical(name === "baseline" ? PLANT_REFERENCE : (request as { layout: unknown }).layout))) {
+          throw new DomainError("SCENE_CONTEXT", "Native plant layout differs from the requested layout");
+        }
+        if (robot && (measured.variant !== "robot-cell" || canonical(measured.cell) !== canonical(cellOf(name)))) {
+          throw new DomainError("SCENE_CONTEXT", "Native robot cell differs from the requested cell");
+        }
+        await writeFile(join(directory, name === "baseline" ? "baseline.xml" : "current.xml"), checksXml(record[name]!), { mode: 0o600, flag: "wx" });
+        if (robot) {
+          const m = record[name] as { tool?: { stlSha256: string; mujocoMassG: number } | null; usd?: SceneReview["usd"] };
+          if (toolInput && (m.tool?.stlSha256 !== toolInput.sha256)) throw new DomainError("SCENE_CONTEXT", "Native simulation mounted a different tool");
+          if (toolInput && name === "candidate") record.tool = { ...record.tool!, mujocoMassG: m.tool!.mujocoMassG };
+          if (m.usd) record.usd = { usdVersion: m.usd.usdVersion, rigidBodies: m.usd.rigidBodies, joints: m.usd.joints, validators: m.usd.validators };
+          if (name === "candidate" && config.newtonPython && record.usd) record.usd.newton = await newtonCheck(config, record, target, request.requestId, publish);
+          if (name === "candidate" && config.robotsPython && config.robotsAssets) record.robots = await robotsCheck(config, record, target, request.requestId, publish);
+        }
+        for (const file of robot ? ["robot.json", "scene.xml", "scene.usda", "robot.glb", "checks.json", ...(toolInput ? ["tool.stl"] : []),
+            ...(name === "candidate" && record.usd?.newton && "passed" in record.usd.newton ? ["newton.json"] : []),
+            ...(name === "candidate" && record.robots && "passed" in record.robots ? ["robots.json"] : [])] : ["scene.blend", "scene.glb", "preview.png", "checks.json", ...(plant ? ["inspection.png"] : [])]) {
+          record.files[`${name}/${file}`] = sha256(await readFile(join(target, file)));
+        }
+        store.put("scene-review", record);
       }
-      // The gripper mount assumes the bracket frame (motor axis); other part families have no tool interface yet.
-      if (familyOf(cad.request) !== "nema17-bracket") throw new DomainError("TOOL_FAMILY", "Only a NEMA 17 bracket can be mounted on the gripper", 422);
-      const stl = join(config.state, "cad", cad.id, "candidate", "part.stl");
-      const stlSha256 = sha256(await readFile(stl));
-      const brepMassG = Number(cad.candidate?.checks.find(c => c.id === "mass")?.observed);
-      const motorAxisMm = Number((cad.candidate as { parameters?: { motorAxisHeight?: number } } | undefined)?.parameters?.motorAxisHeight ?? cad.sandbox?.motorAxisZ);
-      if (stlSha256 !== cad.files["candidate/part.stl"]) throw new DomainError("TOOL_DIGEST", "The CAD part file differs from its review record", 422);
-      if (!(brepMassG > 0) || !(motorAxisMm > 0)) throw new DomainError("TOOL_CONTEXT", "The CAD part does not declare its mass and motor axis", 422);
-      toolInput = { stl, sha256: stlSha256, brepMassG, motorAxisMm, payloadKg: request.tool.payloadKg };
-      record.tool = { cadReviewId: cad.id, stlSha256, brepMassG, payloadKg: request.tool.payloadKg, motorAxisMm };
-      record.sourceDigests["tool-stl"] = stlSha256;
-    }
-    const cellOf = (name: "baseline" | "candidate") => name === "baseline" ? ROBOT_REFERENCE : (request as { cell: z.infer<typeof RobotCell> }).cell;
-    for (const [name, variant] of [["baseline", plant ? "plant" : robot ? "robot-cell" : "clear"], ["candidate", request.variant]] as const) {
-      const target = join(directory, name);
-      const label = robot ? `MuJoCo ${name === "baseline" ? "参考工作单元" : "候选工作单元"}（${ROBOT_SEEDS.length} 个种子 · 速度 ${Math.round(cellOf(name).speedFraction * 100)}%）` : plant ? `Blender ${name === "baseline" ? "参考产线" : "候选产线"}（${(name === "baseline" ? PLANT_REFERENCE : (request as { layout: z.infer<typeof PlantLayout> }).layout).stations} 工位）`
-        : `Blender ${name === "baseline" ? "基准" : "候选"}场景（${variant === "occluded" ? "遮挡" : "无遮挡"}）`;
-      publish(request.requestId, { kind: "step", id: `blender-${name}`, label, status: "running", which: name });
-      let observed = Promise.resolve();
-      const observe = (line: string) => {
-        if (!line.startsWith("PAI_EVENT ")) return;
-        observed = observed.then(async () => {
-          const parsed = NativeEvent.safeParse((() => { try { return JSON.parse(line.slice(10)); } catch { return undefined; } })());
-          if (!parsed.success) return;
-          const e = parsed.data;
-          if (e.type === "stage") {
-            const digest = sha256(await readFile(join(target, e.file)));
-            const stage: SceneStage = { index: e.index, id: e.id, label: e.label, file: e.file, sha256: digest, objects: e.objects };
-            record.stages = { ...record.stages, [name]: [...(record.stages?.[name] ?? []), stage] };
-            store.put("scene-review", record);
-            publish(request.requestId, { kind: "stage", which: name, index: e.index, id: e.id, label: e.label, objects: e.objects,
-              url: `/api/scenes/${record.id}/stages/${name}/${e.index}`, sha256: digest });
-          } else if (e.type === "ray") {
-            const { type: _type, ...ray } = e;
-            record.rays = { ...record.rays, [name]: { ...ray, frame: "gltf-y-up" } };
-            store.put("scene-review", record);
-            publish(request.requestId, { kind: "ray", which: name, origin: e.origin, target: e.target, hit: e.hit, firstHit: e.firstHit, visible: e.visible });
-          } else {
-            publish(request.requestId, { kind: "render", which: name, sample: e.sample, samples: e.samples });
-          }
-        }).catch(() => { /* Presentation events never fail the native review. */ });
-      };
-      await writePrivate(join(directory, `${name}-input.json`), JSON.stringify(robot
-        ? { cell: cellOf(name), requirements: request.requirements, seeds: ROBOT_SEEDS, ...(toolInput ? { tool: toolInput } : {}) }
-        : plant
-        ? { variant, layout: name === "baseline" ? PLANT_REFERENCE : (request as { layout: unknown }).layout, requirements: request.requirements, render: name === "baseline" ? "preview" : "hero" }
-        : { variant, requirements: request.requirements }));
-      const args = robot ? ["-I", script, "--input", join(directory, `${name}-input.json`), "--output", target]
-        : ["--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "2", "--python", script,
-          "--", "--input", join(directory, `${name}-input.json`), "--output", target];
-      const r = await command(engine, args, config.repository, undefined, plant ? 900_000 : robot ? 300_000 : 120_000, observe);
-      await observed;
-      await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
-      await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
-      record.receipts.push({ adapter: robot ? "mujoco-native" : "blender-native", command: [robot ? "python" : "blender", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
-        exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { "script": scriptHash } });
-      store.put("scene-review", record);
-      publish(request.requestId, { kind: "step", id: `blender-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name,
-        detail: `exit ${r.exitCode}` });
-      if (r.exitCode !== 0) throw new DomainError("BLENDER_FAILED", "Native scene production failed; retain receipts and inspect local artifacts", 422);
-      record[name] = SceneChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
-      if (record[name]!.variant !== variant) throw new DomainError("SCENE_CONTEXT", "Native scene variant mismatch");
-      const measured = record[name]!;
-      if (plant && (measured.variant !== "plant" || canonical(measured.layout) !== canonical(name === "baseline" ? PLANT_REFERENCE : (request as { layout: unknown }).layout))) {
-        throw new DomainError("SCENE_CONTEXT", "Native plant layout differs from the requested layout");
-      }
-      if (robot && (measured.variant !== "robot-cell" || canonical(measured.cell) !== canonical(cellOf(name)))) {
-        throw new DomainError("SCENE_CONTEXT", "Native robot cell differs from the requested cell");
-      }
-      await writeFile(join(directory, name === "baseline" ? "baseline.xml" : "current.xml"), checksXml(record[name]!), { mode: 0o600, flag: "wx" });
-      if (robot) {
-        const m = record[name] as { tool?: { stlSha256: string; mujocoMassG: number } | null; usd?: SceneReview["usd"] };
-        if (toolInput && (m.tool?.stlSha256 !== toolInput.sha256)) throw new DomainError("SCENE_CONTEXT", "Native simulation mounted a different tool");
-        if (toolInput && name === "candidate") record.tool = { ...record.tool!, mujocoMassG: m.tool!.mujocoMassG };
-        if (m.usd) record.usd = { usdVersion: m.usd.usdVersion, rigidBodies: m.usd.rigidBodies, joints: m.usd.joints, validators: m.usd.validators };
-        if (name === "candidate" && config.newtonPython && record.usd) record.usd.newton = await newtonCheck(config, record, target, request.requestId, publish);
-        if (name === "candidate" && config.robotsPython && config.robotsAssets) record.robots = await robotsCheck(config, record, target, request.requestId, publish);
-      }
-      for (const file of robot ? ["robot.json", "scene.xml", "scene.usda", "robot.glb", "checks.json", ...(toolInput ? ["tool.stl"] : []),
-          ...(name === "candidate" && record.usd?.newton && "passed" in record.usd.newton ? ["newton.json"] : []),
-          ...(name === "candidate" && record.robots && "passed" in record.robots ? ["robots.json"] : [])] : ["scene.blend", "scene.glb", "preview.png", "checks.json", ...(plant ? ["inspection.png"] : [])]) {
-        record.files[`${name}/${file}`] = sha256(await readFile(join(target, file)));
-      }
-      store.put("scene-review", record);
-    }
-    publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选", status: "running" });
-    const diff = await adapters.diff(directory);
-    publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选", status: "done", detail: `blocking ${diff.value.blocking_changes}` });
-    const lost = record.baseline!.checks.filter(c => c.passed && !record.candidate!.checks.find(n => n.id === c.id)!.passed).length;
-    if (diff.value.blocking_changes !== lost || diff.value.gate_passed !== (lost === 0)) throw new DomainError("SCENE_DIFF_MISMATCH", "Native geometry and independent comparison disagree");
-    if (sha256(await readFile(script)) !== scriptHash || canonical(nativeBefore) !== canonical(await adapters.sourceDigests())
-        || record.sourceDigests[engineKey] !== sha256(await readFile(engine))) throw new DomainError("SOURCE_CHANGED", "Native verifier changed during scene production");
-    record.diff = diff.value; record.receipts.push(diff.receipt);
-    record.verdict = record.candidate!.checks.every(c => c.passed) ? "accepted-static-scene" : "rejected";
-    if (robot) record.scope = "rigid-body-simulation";
-    record.state = "completed";
-  } catch (e) { record.state = "failed"; record.error = e instanceof DomainError ? `${e.code}: ${e.message}` : "BLENDER_FAILED: check native configuration and retained local receipts"; }
-  record.finishedAt = new Date().toISOString(); store.put("scene-review", record);
-  publish(request.requestId, { kind: "done", state: record.state, recordId: record.id, verdict: record.verdict, detail: record.error });
-  return record;
+      publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选", status: "running" });
+      const diff = await adapters.diff(directory);
+      publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选", status: "done", detail: `blocking ${diff.value.blocking_changes}` });
+      const lost = record.baseline!.checks.filter(c => c.passed && !record.candidate!.checks.find(n => n.id === c.id)!.passed).length;
+      if (diff.value.blocking_changes !== lost || diff.value.gate_passed !== (lost === 0)) throw new DomainError("SCENE_DIFF_MISMATCH", "Native geometry and independent comparison disagree");
+      if (sha256(await readFile(script)) !== scriptHash || canonical(nativeBefore) !== canonical(await adapters.sourceDigests())
+          || record.sourceDigests[engineKey] !== sha256(await readFile(engine))) throw new DomainError("SOURCE_CHANGED", "Native verifier changed during scene production");
+      record.diff = diff.value; record.receipts.push(diff.receipt);
+      if (robot) record.scope = "rigid-body-simulation";
+      return record.candidate!.checks.every(c => c.passed) ? "accepted-static-scene" : "rejected";
+    } });
 }
 
 /**

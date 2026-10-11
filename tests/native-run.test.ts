@@ -22,7 +22,7 @@ async function harness() {
     work: (r: Rec) => Promise<"accepted" | "rejected">) => {
     const record: Rec = { id: randomUUID(), projectId: project.id, state: "running", createdAt: new Date().toISOString(), request, feedbackId: request.feedbackId };
     return nativeRun({ store, live, project, kind: "aero-review", evidenceKind: "aero-body", request, record, failure: "TEST_FAILED",
-      recheck: { label: "Test recheck", sameRequirements: o => o.request.requirements.limit === request.requirements.limit }, work: async r => work(r) });
+      recheck: { message: "Test recheck must bind the same feedback and unchanged requirements", sameRequirements: o => o.request.requirements.limit === request.requirements.limit }, work: async r => work(r) });
   };
   return { store, events, run, cleanup: async () => { store.close(); await rm(dir, { recursive: true, force: true }); } };
 }
