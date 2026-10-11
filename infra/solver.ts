@@ -16,7 +16,10 @@ import { resolve } from "node:path";
 export const SOLVER = {
   queue: "pai-solver", jobDefinition: "pai-solver-fea", cfdJobDefinition: "pai-solver-cfd", camJobDefinition: "pai-solver-cam", repository: "pai-solver",
   bucket: (account: string, region: string) => `pai-solver-jobs-${account}-${region}`,
+  /** Engine images (ADR 0004): one toolchain image per engine, separate from the Batch job images and their lifecycle. */
+  engineRepository: "pai-engines",
 };
+export const ENGINE_IMAGES = ["cad", "physics", "blender", "robots", "newton", "logistics"] as const;
 const OPERATOR_ROLE = (account: string, region: string) => `cdk-hnb659fds-pai-operator-role-${account}-${region}`;
 
 /**
@@ -126,19 +129,58 @@ export class SolverStack extends cdk.Stack {
         assignPublicIp: true, jobRole, logging: ecs.LogDriver.awsLogs({ streamPrefix: "cam", logGroup: jobLogs }), readonlyRootFilesystem: false, user: "1003",
       }),
     });
+    // Engine images (ADR 0004; tools/package_engines.py): own repository so their lifecycle never expires a Batch
+    // image in use; immutable tags from each image's inputs; scanned on push; at most 3 images kept per engine.
+    const engineContext = resolve("../.state/deploy/engine-context");
+    if (!existsSync(resolve(engineContext, "engine-tags.json"))) throw new Error("Run python3 tools/package_engines.py first");
+    const engineTags = JSON.parse(readFileSync(resolve(engineContext, "engine-tags.json"), "utf8")) as Record<typeof ENGINE_IMAGES[number], string>;
+    const engineRepo = new ecr.Repository(this, "EngineImages", {
+      repositoryName: SOLVER.engineRepository, imageTagMutability: ecr.TagMutability.IMMUTABLE, imageScanOnPush: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      lifecycleRules: ENGINE_IMAGES.map((e, i) => ({ rulePriority: i + 1, tagPrefixList: [`engine-${e}-`], maxImageCount: 3, description: `keep 3 ${e} images` })),
+    });
+    const engineSource = new assets.Asset(this, "EngineBuildContext", { path: engineContext });
+    const engineProject = new codebuild.Project(this, "EngineImageBuild", {
+      projectName: "pai-engine-images", description: "linux/amd64 engine toolchain images (ADR 0004)",
+      source: codebuild.Source.s3({ bucket: engineSource.bucket, path: engineSource.s3ObjectKey }),
+      environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, computeType: codebuild.ComputeType.LARGE, privileged: true },
+      environmentVariables: { REPO: { value: engineRepo.repositoryUri }, ...Object.fromEntries(ENGINE_IMAGES.map(e => [`TAG_${e.toUpperCase()}`, { value: engineTags[e] }])) },
+      timeout: cdk.Duration.minutes(90), logging: { cloudWatch: { logGroup: buildLogs } },
+      buildSpec: codebuild.BuildSpec.fromObject({
+        version: "0.2",
+        phases: {
+          pre_build: { commands: ["aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO%%/*}"] },
+          build: { commands: ENGINE_IMAGES.map(e => {
+            const tag = `$TAG_${e.toUpperCase()}`;
+            // Never rebuild an existing tag; smoke-run every new image with no network, a read-only root and no capabilities.
+            return `if aws ecr describe-images --repository-name ${SOLVER.engineRepository} --image-ids imageTag=${tag} >/dev/null 2>&1; then echo "exists ${tag}"; else `
+              + `docker build --platform linux/amd64 -f engines/Dockerfile.${e} --build-arg PAI_IMAGE_VERSION=${tag} -t $REPO:${tag} . `
+              + `&& docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp --entrypoint /bin/sh $REPO:${tag} -c 'ls /opt/pai/tools >/dev/null' `
+              + `&& docker push $REPO:${tag}; fi`;
+          }) },
+          post_build: { commands: [`aws ecr describe-images --repository-name ${SOLVER.engineRepository} --image-ids ${ENGINE_IMAGES.map(e => `imageTag=$TAG_${e.toUpperCase()}`).join(" ")} --query 'imageDetails[].[imageTags[0],imageSizeInBytes,imageDigest]' --output text`] },
+        },
+      }),
+    });
+    engineRepo.grantPullPush(engineProject);
+    engineProject.addToRolePolicy(new iam.PolicyStatement({ actions: ["ecr:DescribeImages"], resources: [engineRepo.repositoryArn] }));
+
     // A separately named policy: the AgentCore stack already owns the default policy name on this imported role.
     new iam.Policy(this, "SolverOperatorPolicy", {
       policyName: "pai-solver-operator", roles: [iam.Role.fromRoleName(this, "Operator", OPERATOR_ROLE(this.account, this.region))],
       statements: [
-        new iam.PolicyStatement({ actions: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"], resources: [project.projectArn] }),
+        new iam.PolicyStatement({ actions: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"], resources: [project.projectArn, engineProject.projectArn] }),
         new iam.PolicyStatement({ actions: ["logs:GetLogEvents", "logs:FilterLogEvents"],
           resources: [buildLogs.logGroupArn, `${buildLogs.logGroupArn}:*`, jobLogs.logGroupArn, `${jobLogs.logGroupArn}:*`] }),
-        new iam.PolicyStatement({ actions: ["ecr:DescribeImages", "ecr:DescribeImageScanFindings"], resources: [repo.repositoryArn] }),
+        new iam.PolicyStatement({ actions: ["ecr:DescribeImages", "ecr:DescribeImageScanFindings"], resources: [repo.repositoryArn, engineRepo.repositoryArn] }),
       ],
     });
 
     new cdk.CfnOutput(this, "SolverImageTag", { value: imageTag });
+    new cdk.CfnOutput(this, "EngineRepositoryUri", { value: engineRepo.repositoryUri });
+    new cdk.CfnOutput(this, "EngineImageTags", { value: JSON.stringify(engineTags) });
     new cdk.CfnOutput(this, "SolverBuildProject", { value: project.projectName });
+    new cdk.CfnOutput(this, "EngineBuildProject", { value: engineProject.projectName });
     new cdk.CfnOutput(this, "SolverQueue", { value: queue.jobQueueName });
     new cdk.CfnOutput(this, "SolverJobDefinition", { value: jobDef.jobDefinitionName });
     new cdk.CfnOutput(this, "SolverCfdJobDefinition", { value: cfdJob.jobDefinitionName });

@@ -24,6 +24,11 @@
 4. 通道逐个切到容器：logistics/yard → cad（含 gVisor）→ physics → robots/Newton（GPU）→ blender（GPU）。每次切换对比切换前后的原生回执（同输入下 CAD/FEA 检查数值、MuJoCo 节拍一致）。
 5. GPU 信号量、回执中的镜像摘要与设备字段、部署文档。
 
+## 进度
+
+- 第 1 步（PR #44）：已合并。
+- 第 2 步：`engines/Dockerfile.<引擎>` 六个镜像（cad、physics、blender、robots、newton、logistics），各自用宿主机同一个 `tools/setup_*.py` 装到同一布局 `/opt/pai/tools`，所以容器后端按前缀把宿主机工具路径映射进镜像。基础镜像按摘要固定，以 nobody 运行，`HOME=/tmp`；只复制安装脚本、版本 pin 和哈希锁，不含 `native/` 脚本。`tools/package_engines.py` 按每个 Dockerfile 及其复制的文件打 `engine-<引擎>-<16 位摘要>` 标签；独立 ECR 仓库 `pai-engines`（不可变标签、推送即扫描、每个引擎保留 3 个，不影响 Batch 在用的 `pai-solver` 镜像）；CodeBuild `pai-engine-images` 构建，新镜像先在无网络、只读根、无能力的容器里冒烟再推送；实例角色只获准从 `pai-engines` 拉取。本机加固容器（`--network none --read-only --cap-drop ALL`）冒烟：OR-Tools 9.15.6755、CadQuery 2.8.0（几何有效）、Strands Robots 0.5.3 + UR5e、gmsh 4.15.2 / CalculiX 2.21 / BoTorch 0.18.1、Newton 1.6.0 / Warp 1.17.0 `cuda True`、Blender 5.2.2 OptiX 看到 GPU。镜像签名留到第 3 步与宿主机校验一起做。
+
 ## 代价
 
 镜像合计约 15–20 GB（ECR 存储与拉取）；宿主机切换时各有一次几分钟的停服；容器启动每次增加约 1 s。换来的是：工具链由镜像摘要直接证明，本机/托管/Batch 共用一套定义，隔离边界由运行时统一施加，GPU 使用可见、可复核。

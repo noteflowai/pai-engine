@@ -36,3 +36,8 @@ for kind, dockerfile in (("fea", "Dockerfile.solver"), ("cfd", "Dockerfile.cfd")
     tags[kind] = f"{kind}-{h.hexdigest()[:16]}"
 (out / "image-tags.json").write_text(json.dumps(tags, indent=1) + "\n")
 print(json.dumps({"context": str(out.relative_to(root)), "files": len(files), "contentSha256": digest.hexdigest(), "tags": tags}))
+# The engine images (ADR 0004) are part of the same stack; stage their context alongside.
+import importlib.util
+_spec = importlib.util.spec_from_file_location("package_engines", root / "tools/package_engines.py")
+_mod = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_mod)
+print(json.dumps(_mod.stage()))

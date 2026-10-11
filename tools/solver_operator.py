@@ -1,6 +1,7 @@
 """Operate the PAI solver (AWS Batch) through the scoped operator role; never prints credentials.
 
-  python3 tools/solver_operator.py build      # build the immutable solver image for the deployed source asset and wait
+  python3 tools/solver_operator.py build          # build the immutable solver images for the deployed source asset and wait
+  python3 tools/solver_operator.py build-engines  # build the engine images (ADR 0004) and print tag, size and digest
   python3 tools/solver_operator.py logs --job-id ID
 """
 import argparse, json, sys, time
@@ -21,21 +22,21 @@ def outputs():
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("action", choices=["build", "logs"])
+parser.add_argument("action", choices=["build", "build-engines", "logs"])
 parser.add_argument("--job-id")
 args = parser.parse_args()
 op, out = session(f"cdk-hnb659fds-pai-operator-role-{ACCOUNT}-{REGION}"), outputs()
-if args.action == "build":
+if args.action in ("build", "build-engines"):
     cb = op.client("codebuild")
-    build = cb.start_build(projectName=out["SolverBuildProject"])["build"]
+    build = cb.start_build(projectName=out["SolverBuildProject"] if args.action == "build" else out["EngineBuildProject"])["build"]
     while True:
         b = cb.batch_get_builds(ids=[build["id"]])["builds"][0]
         if b["buildStatus"] != "IN_PROGRESS":
             break
         time.sleep(20)
     events = op.client("logs").get_log_events(logGroupName=b["logs"]["groupName"], logStreamName=b["logs"]["streamName"], limit=60, startFromHead=False)["events"]
-    tail = [e["message"].rstrip() for e in events if any(k in e["message"] for k in ("exists", "fea-", "cfd-", "cam-", "gmsh", "digest", "sha256"))][-6:]
-    print(json.dumps({"status": b["buildStatus"], "imageTag": out["SolverImageTag"], "log": [t.replace(ACCOUNT, "<acct>") for t in tail]}, indent=1))
+    tail = [e["message"].rstrip() for e in events if any(k in e["message"] for k in ("exists", "fea-", "cfd-", "cam-", "engine-", "gmsh", "digest", "sha256"))][-8:]
+    print(json.dumps({"status": b["buildStatus"], "imageTag": out["SolverImageTag"] if args.action == "build" else json.loads(out["EngineImageTags"]), "log": [t.replace(ACCOUNT, "<acct>") for t in tail]}, indent=1))
     sys.exit(0 if b["buildStatus"] == "SUCCEEDED" else 1)
 else:
     lg = op.client("logs")
