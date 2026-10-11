@@ -161,6 +161,10 @@ export class WorkbenchStack extends cdk.Stack {
     // The Claude and Codex engines on Amazon Bedrock with the instance role (infra/bedrock.ts, tools/bedrock-engines.json).
     for (const statement of bedrockEngineStatements(this.account)) role.addToPolicy(statement);  // DescribeJobs has no resource-level permissions
     role.addToPolicy(new iam.PolicyStatement({ actions: ["s3:PutObject", "s3:GetObject"], resources: [`arn:aws:s3:::${SOLVER.bucket(this.account, this.region)}/jobs/*`] }));
+    // Engine images (ADR 0004): the host pulls them by digest; pull only, from the engine repository only.
+    role.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages"],
+      resources: [`arn:aws:ecr:${this.region}:${this.account}:repository/${SOLVER.engineRepository}`] }));
+    role.addToPolicy(new iam.PolicyStatement({ actions: ["ecr:GetAuthorizationToken"], resources: ["*"] }));
     // Write-once archive of sealed release packages. Object Lock (COMPLIANCE default retention) means no principal,
     // including this stack and the account root, can delete or shorten a retained version before its date.
     const retentionDays = Number(this.node.tryGetContext("packageRetentionDays") ?? 365);
