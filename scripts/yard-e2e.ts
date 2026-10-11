@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { configuration } from "../src/config.js";
@@ -50,7 +51,8 @@ try {
   assert.equal(JSON.parse(await readFile(join(dir, "v.json"), "utf8")).verdict, "valid-schedule");
   assert.ok(cp.totals.priorityAdmitted >= fcfs.totals.priorityAdmitted);
 
-  await writeFile(join(base.repository, "docs/media/yard-demo.svg"), figure(problem, cp, fcfs));
+  // The README figure is written only in a source checkout; a deployed release carries no docs/ (hosted e2e).
+  if (existsSync(join(base.repository, "docs/media"))) await writeFile(join(base.repository, "docs/media/yard-demo.svg"), figure(problem, cp, fcfs));
   // Digital twin: the disturbed day (late trucks from the gate camera, a dock outage from its door sensor) under both
   // policies, CP-SAT re-planning on each sensor event; both adopted schedules must pass the verifier on the real day.
   const twinDir = join(state, "twin"); await mkdir(twinDir, { recursive: true });
