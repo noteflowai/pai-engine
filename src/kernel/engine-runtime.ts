@@ -65,6 +65,19 @@ export function imageProgram(c: EngineContainerConfig, program: string): string 
   throw new DomainError("ENGINE_IMAGE", `${program} is not a tool of the engine images`, 500);
 }
 
+/**
+ * The path an engine sees for a host tool it is handed inside its input (e.g. CalculiX or the CadQuery interpreter
+ * named in an optimisation spec): the image path when that engine runs in a container, otherwise the host path.
+ */
+export function enginePath(host: EngineHost, engine: Engine, hostPath: string): string {
+  return backendFor(host, { engine, program: hostPath, args: [], cwd: "/", mounts: { write: [] }, timeoutMs: 0 }) === "container"
+    ? imageProgram(host.engineContainer!, hostPath) : hostPath;
+}
+/** What a receipt pins for a tool: the file digest on the process backend, the image digest in a container. */
+export async function toolDigest(host: EngineHost, engine: Engine, hostPath: string, fileDigest: () => Promise<string>): Promise<string> {
+  return enginePath(host, engine, hostPath) === hostPath ? fileDigest() : `image:${host.engineContainer!.images[engine].split("@").at(-1)}`;
+}
+
 /** CLI arguments of one hardened, single-use engine container (pure; tested). */
 export function containerArgs(c: EngineContainerConfig, call: EngineCall, repository: string, name: string): string[] {
   const image = c.images[call.engine];

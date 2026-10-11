@@ -1,4 +1,4 @@
-import { runEngine } from "./kernel/engine-runtime.js";
+import { enginePath, runEngine, toolDigest } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -142,9 +142,9 @@ export async function optimizeCad(store: Store, config: Config, project: Project
     record.sourceDigests = { ...before, ...(solver === "batch" ? { "solver-job.py": sha256(await readFile(native("solver_job.py"))), "solver-lock": sha256(await readFile(native("solver-requirements.txt"))) } : {}),
       ...(request.strategy === "botorch-qlognehvi" ? { "botorch-lock": sha256(await readFile(native("bo-requirements.txt"))) } : {}),
       "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "cadquery-lock": sha256(await readFile(native("cadquery-requirements.txt"))),
-      ccx: sha256(await readFile(config.ccx)) };
+      ccx: await toolDigest(config, "physics", config.ccx, async () => sha256(await readFile(config.ccx!))) };
     const inputFile = join(directory, "input.json");
-    await writePrivate(inputFile, JSON.stringify({ family: request.family, cadquery: config.cadquery, ccx: config.ccx, requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
+    await writePrivate(inputFile, JSON.stringify({ family: request.family, cadquery: enginePath(config, "physics", config.cadquery), ccx: enginePath(config, "physics", config.ccx), requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
       ...(solver === "batch" ? { backend: "batch", batch: { ...config.solverBatch!, run: record.id, timeoutSeconds: 1800 } } : {}) }));
     const total = request.budget.initial + 1 + request.budget.rounds * request.budget.perRound;
     publish({ kind: "step", id: "optimize", label: `物理寻优：约 ${total} 次 CalculiX 求解 + 代理模型排序`, status: "running" });
@@ -161,10 +161,10 @@ export async function optimizeCad(store: Store, config: Config, project: Project
     };
     const args = ["-I", native("cad_optimize.py"), "--input", inputFile, "--output", directory];
     const r = await runEngine(config, { engine: "physics", program: config.physicsPython, args, cwd: config.repository, mounts: { read: [inputFile], write: [directory] },
-      timeoutMs: Math.max(600_000, total * 120_000), onLine: observe });
+      timeoutMs: Math.max(600_000, total * 120_000), onLine: observe, network: solver === "batch" ? "aws" : "none" });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cad-optimize", command: ["python", "cad_optimize.py"], startedAt: r.startedAt, finishedAt: r.finishedAt,
-      exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: before });
+      exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout), sourceDigests: before });
     if (r.exitCode !== 0) throw new DomainError("CAD_OPTIMIZE_FAILED", "Native optimisation failed; retain receipts and inspect local artifacts", 422);
     const text = await readFile(join(directory, "optimize.json"), "utf8");
     const result = OptimizeResult.parse(JSON.parse(text));

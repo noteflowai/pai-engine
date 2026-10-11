@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1.7
-# PAI engine image: physics (Gmsh, CalculiX 2.21, MuJoCo, Optuna, scikit-learn, BoTorch; hash-locked, CPU for reproducible verdicts) (ADR 0004). Toolchain only: the release's native/ scripts are mounted read-only at run time,
+# PAI engine image: physics (Gmsh, CalculiX 2.21, MuJoCo, Optuna, scikit-learn, BoTorch; hash-locked, CPU for reproducible verdicts).
+# Also CadQuery 2.8 (same lock as the cad image): optimisation and FEA regenerate geometry per point, as on the host. (ADR 0004). Toolchain only: the release's native/ scripts are mounted read-only at run time,
 # so a script change never rebuilds an image. Installed by the same tools/setup_*.py as the host, into the same
 # layout (PAI_TOOLS_DIR=/opt/pai/tools), so the engine runtime maps a host tool path to the image by prefix.
 # pip (system and venv copies) is removed after install: nothing installs at run time.
 ARG BASE=public.ecr.aws/docker/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 FROM ${BASE}
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PAI_TOOLS_DIR=/opt/pai/tools PAI_ENV_FILE=/tmp/pai-setup.env
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates python3 python3-venv libglu1-mesa libgl1 libegl1 libopengl0 libxcursor1 libxft2 libxinerama1 libfontconfig1 libgomp1 libopenmpi3t64 \
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates python3 python3-venv libglu1-mesa libgl1 libegl1 libopengl0 libx11-6 libxrender1 libxext6 libxi6 libxkbcommon0 libsm6 libxcursor1 libxft2 libxinerama1 libfontconfig1 libgomp1 libopenmpi3t64 \
  && rm -rf /var/lib/apt/lists/*
-COPY --chmod=0644 tools/setup_physics.py /opt/pai/src/tools/
-COPY --chmod=0644 native/physics-requirements.txt native/bo-requirements.txt /opt/pai/src/native/
-RUN apt-get update -qq && python3 /opt/pai/src/tools/setup_physics.py --with-botorch && rm -rf /var/lib/apt/lists/* \
+COPY --chmod=0644 tools/setup_physics.py tools/setup_cadquery.py /opt/pai/src/tools/
+COPY --chmod=0644 native/physics-requirements.txt native/bo-requirements.txt native/cadquery-requirements.txt /opt/pai/src/native/
+RUN apt-get update -qq && python3 /opt/pai/src/tools/setup_physics.py --with-botorch && python3 /opt/pai/src/tools/setup_cadquery.py && rm -rf /var/lib/apt/lists/* \
  && /opt/pai/tools/calculix-2.21/ccx -v 2>&1 | grep -q "Version 2.21" \
  && /opt/pai/tools/physics-1/bin/python -c "import gmsh, mujoco, botorch; print(gmsh.__version__, mujoco.__version__, botorch.__version__)" \
  && find /opt/pai/tools -name __pycache__ -prune -exec rm -rf {} + && rm -rf /opt/pai/src /tmp/pai-setup.env \

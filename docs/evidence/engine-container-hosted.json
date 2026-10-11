@@ -1,0 +1,54 @@
+{
+  "schema": "pai-aws-engine-container-1",
+  "site": "https://pai.oneai.host",
+  "checkedAt": "2026-10-11T12:05:11.114Z",
+  "build": "v0.9.0 · 2fde924",
+  "workflow": "site-admission-plan@1",
+  "input": "synthetic yard, seed 7, peak (native/yard_generate.py)",
+  "nodes": [
+    {
+      "id": "schedule",
+      "state": "succeeded",
+      "status": "partial",
+      "runtimes": [
+        "container:cpu:sha256:94ae79d7558a"
+      ]
+    },
+    {
+      "id": "verify",
+      "state": "succeeded",
+      "status": "valid-schedule",
+      "runtimes": [
+        "container:cpu:sha256:94ae79d7558a"
+      ]
+    },
+    {
+      "id": "gate",
+      "state": "succeeded",
+      "status": "pass",
+      "runtimes": []
+    },
+    {
+      "id": "controller",
+      "state": "waiting-approval",
+      "status": "awaiting decision",
+      "runtimes": []
+    }
+  ],
+  "result": {
+    "admitted": 15,
+    "priorityAdmitted": 34,
+    "waitingMin": 258,
+    "verifier": "valid-schedule"
+  },
+  "matchesBenchmark": true,
+  "host": {
+    "backend": "rootless podman, single uid mapping, --network none --read-only --cap-drop ALL",
+    "leftoverContainers": 0
+  },
+  "aiLedgerUnchanged": {
+    "finished": 24,
+    "uncertain": 4
+  },
+  "approval": "maintainer, deployment check on a synthetic instance; no real vehicle released"
+}
