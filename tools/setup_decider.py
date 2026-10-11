@@ -5,6 +5,8 @@
 - The decider adapter and its base model at the revisions pinned in tools/runtime-pins.json, downloaded once into
   `decider-hf`; the service then runs with HF_HUB_OFFLINE=1 and never fetches again.
 - Writes nothing outside PAI_TOOLS_DIR (or .state/tools). Running the service is infra/update_release.sh's job.
+- PAI_DECIDER_RUNTIME_ONLY=1 (engine image build, ADR 0004): the runtime only; the model stays on the data volume
+  and is mounted into the container, so model bytes are never baked into an image.
 """
 from pathlib import Path
 import hashlib, json, os, subprocess, sys
@@ -21,11 +23,14 @@ if not (venv / "bin/pip").exists():
 python = venv / "bin/python"
 subprocess.run([str(python), "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--no-input", "--no-cache-dir",
                 "--require-hashes", "--no-deps", "--only-binary", ":all:", "-r", str(lock)], check=True)
+runtime_only = os.environ.get("PAI_DECIDER_RUNTIME_ONLY") == "1"
 env = {**os.environ, "HF_HOME": str(hf), "HF_HUB_DISABLE_TELEMETRY": "1"}
 fetch = ("import sys; from huggingface_hub import snapshot_download as d;"
          "print(d(sys.argv[1], revision=sys.argv[2])); print(d(sys.argv[3], revision=sys.argv[4]))")
-paths = subprocess.run([str(python), "-c", fetch, pin["model"], pin["modelRevision"], pin["base"], pin["baseRevision"]],
+paths = [] if runtime_only else subprocess.run([str(python), "-c", fetch, pin["model"], pin["modelRevision"], pin["base"], pin["baseRevision"]],
                        env=env, check=True, capture_output=True, text=True).stdout.split()
+if not runtime_only and len(paths) != 2:
+    raise SystemExit("model download did not return both pinned snapshots")
 for p, rev in zip(paths, [pin["modelRevision"], pin["baseRevision"]]):
     if not p.endswith(rev):
         raise SystemExit(f"downloaded snapshot {p} is not the pinned revision {rev}")

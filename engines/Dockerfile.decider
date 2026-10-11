@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1.7
+# PAI engine image: decider (Strands Decider 0.1.0 runtime with CUDA wheels, hash-locked; ADR 0002/0004). Runtime only:
+# the pinned model revisions stay on the data volume (tools/setup_decider.py) and are mounted at run time, offline.
+# Installed by the host's own setup script into the same /opt/pai/tools layout; GPU through NVIDIA CDI.
+# pip (system and venv copies) is removed after install: nothing installs at run time.
+ARG BASE=public.ecr.aws/docker/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PAI_TOOLS_DIR=/opt/pai/tools PAI_ENV_FILE=/tmp/pai-setup.env
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates python3 python3-venv libgomp1 && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0644 tools/setup_decider.py tools/runtime-pins.json /opt/pai/src/tools/
+COPY --chmod=0644 native/decider-requirements.txt /opt/pai/src/native/
+RUN PAI_DECIDER_RUNTIME_ONLY=1 python3 /opt/pai/src/tools/setup_decider.py \
+ && /opt/pai/tools/decider-1/bin/python -c "import importlib.metadata as m; assert m.version('strands-decider') == '0.1.0'" \
+ && find /opt/pai/tools -name __pycache__ -prune -exec rm -rf {} + && rm -rf /opt/pai/src /tmp/pai-setup.env /opt/pai/tools/decider-hf /opt/pai/tools/decider-install-receipt.json \
+ && chmod -R a+rX,go-w /opt/pai \
+ && rm -rf /opt/pai/tools/*/lib/python3*/site-packages/pip /opt/pai/tools/*/lib/python3*/site-packages/pip-* /opt/pai/tools/*/bin/pip* \
+ && (apt-get purge -y -qq python3-venv python3-pip-whl python3-setuptools-whl >/dev/null 2>&1 || true) && apt-get autoremove -y -qq >/dev/null && rm -rf /var/lib/apt/lists/*
+ARG PAI_IMAGE_VERSION=dev
+LABEL org.opencontainers.image.source="https://github.com/noteflowai/pai-engine" org.opencontainers.image.title="pai-engine-decider"
+ENV PAI_IMAGE_VERSION=${PAI_IMAGE_VERSION} PAI_ENGINE=decider HOME=/tmp XDG_CACHE_HOME=/tmp/.cache HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1
+USER 65534:65534
+WORKDIR /tmp

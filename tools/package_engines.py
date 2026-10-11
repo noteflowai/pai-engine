@@ -10,7 +10,7 @@ import re
 import shutil
 from pathlib import Path
 
-ENGINES = ("cad", "physics", "blender", "robots", "newton", "logistics")
+ENGINES = ("cad", "physics", "blender", "robots", "newton", "logistics", "decider")
 root = Path(__file__).resolve().parent.parent
 out = root / ".state/deploy/engine-context"
 
