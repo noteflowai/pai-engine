@@ -53,3 +53,31 @@ test("every write route in src is registered through the action runtime; none by
   const files = (await readdir("src", { recursive: true })).filter(f => String(f).endsWith(".ts")).map(f => `src/${f}`);
   for (const f of files) assert.doesNotMatch(await readFile(f, "utf8"), /app\.(post|patch|put|delete)\(/, `${f} registers a write route by hand`);
 });
+
+test("every write attempt leaves one audit record (done, invalid, refused) without the request body; only maintainers read it", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { configuration } = await import("../src/config.js");
+  const { createApp } = await import("../src/server.js");
+  const { parseTenants } = await import("../src/tenants.js");
+  const state = await mkdtemp(join(tmpdir(), "pai-audit-"));
+  const config = { ...configuration(), state, tenants: parseTenants(JSON.stringify([{ id: "acme", clientId: "acmeclient" }])) };
+  const { app } = await createApp(config);
+  const host = `127.0.0.1:${config.port}`, json = { "content-type": "application/json" };
+  try {
+    const secret = "SECRET-INTENDED-DECISION-TEXT";
+    await app.inject({ method: "POST", url: "/api/projects", headers: { host, ...json }, payload: { title: "Audit", intendedDecision: secret,
+      requirements: { minSuccessRate: 0.5, preserveBaselineSuccess: true, requireSignificantImprovement: false, alpha: 0.05 } } });
+    await app.inject({ method: "POST", url: "/api/projects", headers: { host, ...json }, payload: { title: "" } });
+    await app.inject({ method: "POST", url: "/api/agent/v1/tenant/runs", headers: { host, ...json, "x-pai-tenant": "acme" },
+      payload: { requestId: "00000000-0000-4000-8000-000000000000", workflow: "none@1", inputs: {} } });
+    const audit = (await app.inject({ url: "/api/v1/audit", headers: { host } })).json();
+    const outcomes = audit.events.map((e: { action: string; outcome: string; caller: { kind: string } }) => `${e.action}:${e.outcome}:${e.caller.kind}`).sort();
+    assert.deepEqual(outcomes, ["createTask:done:maintainer", "createTask:invalid:maintainer", "startTenantRun:invalid:tenant"]);
+    assert.ok(!JSON.stringify(audit).includes(secret), "no request body in the audit log");
+    assert.equal(audit.events.find((e: { action: string; outcome: string }) => e.outcome === "done").actor, "local-maintainer");
+    assert.equal((await app.inject({ url: "/api/agent/v1/audit", headers: { host } })).statusCode, 404, "not reachable for agents");
+    assert.equal((await app.inject({ url: "/api/agent/v1/objects/AuditEvent", headers: { host } })).statusCode, 404, "not an agent-readable object");
+  } finally { await app.close(); await rm(state, { recursive: true, force: true }); }
+});

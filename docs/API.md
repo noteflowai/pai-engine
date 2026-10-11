@@ -128,3 +128,7 @@ A tenant is an OAuth client-credentials app client with the single scope `pai-ag
 | `GET /api/v1/tenants` | Configured tenants, quotas and usage (no client ids) |
 | `GET /api/v1/offerings` · `POST /api/v1/offerings` `{workflow, tenants, reason}` · `POST /api/v1/offerings/:id/revoke` `{reason}` | Offer a workflow (at its digest) to tenants; revoke |
 
+## Audit (v1)
+
+`GET /api/v1/audit?action=<actionId>&limit=100` (maintainer session only): the newest audit events first. One event per write attempt through an ontology action: `action`, `method`, `route`, path `params`, `caller` (`maintainer`, `agent` with its scope, or `tenant`), `actor`, HTTP `status`, `outcome` (`done` / `accepted` / `refused` / `invalid` / `failed`), domain error `code`, `durationMs`. Request bodies are never recorded. Not reachable under `/api/agent`.
+

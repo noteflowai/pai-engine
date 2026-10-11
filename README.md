@@ -44,7 +44,7 @@ flowchart LR
 
 | 层 | 说明 |
 |---|---|
-| **本体** | `pai-ontology-1`：26 个对象类型、31 个链接类型、46 个动作类型，从代码派生，契约测试防漂移；写入只能经过动作；导出 JSON Schema 与 OWL 2 + SHACL（PROV-O）。见 [ADR 0002](docs/adr/0002-physical-ai-engine-platform.md) |
+| **本体** | `pai-ontology-1`：27 个对象类型、31 个链接类型、46 个动作类型，从代码派生，契约测试防漂移；写入只能经过动作；导出 JSON Schema 与 OWL 2 + SHACL（PROV-O）。见 [ADR 0002](docs/adr/0002-physical-ai-engine-platform.md) |
 | **引擎目录** | `GET /api/v1/engines`：每个引擎声明权限，只有 `verdict` 引擎能决定结论 |
 | **设计工作台** | 平台上的第一个产品：需求冻结 → 候选设计 → 原生验证 → 失败回放 → 反馈复测 → 准入与签名发布 |
 | **制品与流程** | 不可变、自带验收基准的算法/模型版本（第一个：场外物流规划，OR-Tools），JSON 配置的业务流程，逐节点证据与用量。见 [ADR 0001](docs/adr/0001-artifacts-and-workflows.md) |
@@ -64,7 +64,7 @@ flowchart LR
 | 证据 | EvalArc 基准对照、发布准入 5 项；AWS KMS 签名，加 RFC 3161 时间戳，只封存一次；界面内和离线核验；首件检验：按冻结公差生成检验计划，可导入 CMM 的 QIF 3.0 / CSV 报告，实测值逐项判定，随发布签名（唯一带 `physicalMeasurement: true` 的记录） | [VERIFICATION.md](docs/VERIFICATION.md) |
 | AI | 受控执行器调用 Kiro（主账号 → 备用 → 二备，版本由执行器固定）、Codex 与 Claude（两者都走 Amazon Bedrock，托管站点用实例角色、不存密钥），共享账本、不自动重试，模型版本按固定 pin 核对；计划带收紧/放宽标记，确认后才执行；模型的物理估算由求解器打分；"带图问 AI"把已记录的渲染图、相机视图和应力云图按摘要发给模型（本机、托管站点和 AgentCore 均可用；盲测 6/6 与射线检查一致）；"AI 战绩"按 AI 记录被执行提案的求解器判定、人工修改、放宽尝试和估算偏差，并回传给模型用于下一次提案；模型同时能看到寻优点、FEA、DFM/CAM 和首件实测 | [AGENT_RUNTIME.md](docs/AGENT_RUNTIME.md) |
 | 自主 | 维护者在总览的"AI 自主迭代"卡片里签发授权（工具、次数、有效期）、给出目标，autopilot 多轮执行"提议 → 原生检查 → 修改"；执行器无法确认副作用时停下等人核对，核对后在同一授权内继续；外部 Agent 用 `pai_run_plan` 在同一授权内触发求解。实跑：Codex 为轴承座提出参数化修正，原生检查通过（150.654 g，见 [VERIFICATION.md](docs/VERIFICATION.md)）；所有冻结要求（外形、载荷、DFM、CAM 节拍）都参与放宽判断，不能放宽要求、验收或发布 | [INDUSTRY_BENCHMARK.md](docs/INDUSTRY_BENCHMARK.md) |
-| 本体与引擎 | `pai-ontology-1`：26 个对象类型、31 个链接类型、46 个动作类型，写入只能经过动作；JSON 与 OWL/SHACL 导出，对象可按链接双向读取；引擎目录标明每个引擎的权限（结论 / 一致性 / 建议）。Strands Robots 对照官方 UR5e：200 个构型法兰最大偏差 6.4 mm，据此把单元连杆质量改为官方值（29.0 → 16.99 kg，节拍与结论不变）。Strands Decider 2B 在规则解析不出工具时给出带置信度的建议（L40S 约 200 ms），只建议、不执行 | [ADR 0002](docs/adr/0002-physical-ai-engine-platform.md) · [API](docs/API.md#ontology-and-engines-v1) |
+| 本体与引擎 | `pai-ontology-1`：27 个对象类型、31 个链接类型、46 个动作类型，写入只能经过动作；JSON 与 OWL/SHACL 导出，对象可按链接双向读取；引擎目录标明每个引擎的权限（结论 / 一致性 / 建议）。Strands Robots 对照官方 UR5e：200 个构型法兰最大偏差 6.4 mm，据此把单元连杆质量改为官方值（29.0 → 16.99 kg，节拍与结论不变）。Strands Decider 2B 在规则解析不出工具时给出带置信度的建议（L40S 约 200 ms），只建议、不执行 | [ADR 0002](docs/adr/0002-physical-ai-engine-platform.md) · [API](docs/API.md#ontology-and-engines-v1) |
 | 外部 Agent | AgentForge 会话经治理 MCP 网关使用 11 个工具（读取、提议、求解数据集、授权内执行）；工作台 `integrations/agentforge` 是唯一来源，底座用一个摘要安装 | [integrations/agentforge](integrations/agentforge/README.md) |
 | 制品（场地准入调度） | 场地有限时哪些车入场、何时入场、上哪个月台、何时离场：OR-Tools CP-SAT（门岗、堆场车位、月台匹配、班组、时间窗），独立核验器按分钟重算；高峰 40 车：入场 15 车、优先级分 34，先到先服务 11 车、17 分。合成场地，不放行真实车辆 | [ADR 0001](docs/adr/0001-artifacts-and-workflows.md#第二个制品场地准入与排队调度-yard-admission2026-10-11) · [VERIFICATION](docs/VERIFICATION.md#场地准入调度2026-10-11) |
 | 制品（物流规划） | OR-Tools 取送货车辆路径，独立核验器只用标准库：验收基准 24 单 / 5 车，OR-Tools 3 车 698 km 全部分配，顺序启发式 5 车 1538 km 漏 2 单；新环境只拿签名包、重新验收后复现相同路线。合成数据，不派车、不声称最优 | [ADR 0001](docs/adr/0001-artifacts-and-workflows.md) · [VERIFICATION](docs/VERIFICATION.md#制品平台) |
