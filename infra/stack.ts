@@ -179,7 +179,7 @@ export class WorkbenchStack extends cdk.Stack {
       resources: [packages.arnForObjects("releases/*")] }));
     const data = new ec2.Volume(this, "Data", {
       // 40 GiB until 2026-10-11; 60 GiB for the Strands Decider runtime and model (~10 GiB) with install headroom. Grows online.
-      availabilityZone: zone, size: cdk.Size.gibibytes(60), volumeType: ec2.EbsDeviceVolumeType.GP3,
+      availabilityZone: zone, size: cdk.Size.gibibytes(100), volumeType: ec2.EbsDeviceVolumeType.GP3,
       encrypted: true, removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const ami = new cdk.CfnParameter(this, "UbuntuAmi", {

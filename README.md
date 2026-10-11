@@ -77,7 +77,7 @@ flowchart TB
       RBT["Strands Robots<br/>Newton · GPU · Warp"]:::gpu
     end
     Decider["Strands Decider 2B<br/>系统一分诊 · GPU · 127.0.0.1<br/><i>EKS：GPU 节点组</i>"]:::gpu
-    EBS[("加密 EBS 60 GiB<br/>SQLite · 回执 · 账本<br/><i>EKS：PVC</i>")]:::data
+    EBS[("加密 EBS 100 GiB<br/>SQLite · 回执 · 账本<br/><i>EKS：PVC</i>")]:::data
     Kernel --> RUN
     Kernel --> Decider
     Kernel --> EBS
