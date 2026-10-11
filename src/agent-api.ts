@@ -17,7 +17,7 @@ export const AGENT_SCOPES = { read: "pai-agent/read", propose: "pai-agent/propos
 export type Scope = keyof typeof AGENT_SCOPES;
 
 /** The complete allowlist. Anything else under /api/agent is 404 before routing. */
-const ROUTES: { method: "GET" | "POST"; pattern: RegExp; scope: Scope }[] = [
+export const AGENT_ROUTES: readonly { method: "GET" | "POST"; pattern: RegExp; scope: Scope }[] = [
   { method: "GET", pattern: /^\/state$/, scope: "read" },
   { method: "GET", pattern: /^\/assistant\/context(\?projectId=[0-9a-f-]{36})?$/, scope: "read" },
   { method: "GET", pattern: /^\/assistant\/plans\/[0-9a-f-]{36}$/, scope: "read" },
@@ -53,7 +53,7 @@ export function rewriteAgentUrl(raw: { url?: string; method?: string } & Tagged)
   const url = raw.url ?? "/";
   if (!url.startsWith(`${AGENT_PREFIX}/`)) return url;
   const rest = url.slice(AGENT_PREFIX.length);
-  const route = ROUTES.find(r => r.method === raw.method && r.pattern.test(rest));
+  const route = AGENT_ROUTES.find(r => r.method === raw.method && r.pattern.test(rest));
   if (!route) return "/api/agent-not-found";
   raw[AGENT] = { scope: route.scope };
   return `/api${rest}`;
