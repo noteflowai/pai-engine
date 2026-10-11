@@ -96,7 +96,7 @@ export const yardAdapter: ArtifactAdapter = {
     params: z.object({ scenario: z.enum(["normal", "peak", "overload"]).default("normal"), seed: z.number().int().min(0).max(1_000_000).default(7) }).strict(),
     async generate(ctx, params) {
       const code = await materialise(ctx), f = join(ctx.directory, "sample.json");
-      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "yard_generate.py"), "--seed", String(params.seed), "--scenario", String(params.scenario), "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
+      const r = await runEngine(ctx.config, { engine: "logistics", program: "python3", args: ["-I", join(code, "yard_generate.py"), "--seed", String(params.seed), "--scenario", String(params.scenario), "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("SAMPLE_FAILED", "generator failed", 500);
       return JSON.parse(await readFile(f, "utf8"));
     },
@@ -105,7 +105,7 @@ export const yardAdapter: ArtifactAdapter = {
   async runtimeReady(config, manifest) {
     if (!config.logisticsPython) return { ready: false, reason: "PAI_LOGISTICS_PYTHON is not set (python3 tools/setup_logistics.py)" };
     const want = manifest.dependencies.find(d => d.name === "ortools")?.version;
-    const r = await runEngine(config.repository, { engine: "logistics", program: config.logisticsPython, args: ["-I", "-c", "import ortools; print(ortools.__version__)"], cwd: config.state, mounts: { write: [] }, timeoutMs: 30_000 }).catch(() => undefined);
+    const r = await runEngine(config, { engine: "logistics", program: config.logisticsPython, args: ["-I", "-c", "import ortools; print(ortools.__version__)"], cwd: config.state, mounts: { write: [] }, timeoutMs: 30_000 }).catch(() => undefined);
     const have = r?.exitCode === 0 ? r.stdout.trim() : undefined;
     return have === want ? { ready: true } : { ready: false, reason: `runtime OR-Tools ${have ?? "unavailable"} differs from the artifact's pin ${want}` };
   },
@@ -138,7 +138,7 @@ export const yardAdapter: ArtifactAdapter = {
     const code = await materialise(ctx);
     const gen = async (scenario: string) => {
       const f = join(ctx.directory, `bench-${scenario}.json`);
-      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "yard_generate.py"), "--seed", "7", "--scenario", scenario, "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
+      const r = await runEngine(ctx.config, { engine: "logistics", program: "python3", args: ["-I", join(code, "yard_generate.py"), "--seed", "7", "--scenario", scenario, "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("BENCHMARK", `generator failed for ${scenario}`, 500);
       return JSON.parse(await readFile(f, "utf8"));
     };

@@ -28,7 +28,7 @@ const botorchProbe = new Map<string, Promise<string | null>>();
 export function botorchVersion(config: Config): Promise<string | null> {
   if (!config.physicsPython) return Promise.resolve(null);
   if (!botorchProbe.has(config.physicsPython)) {
-    botorchProbe.set(config.physicsPython, runEngine(config.repository, { engine: "physics", program: config.physicsPython, args: ["-I", "-c", "import botorch; print(botorch.__version__)"], cwd: config.repository, mounts: { write: [] }, timeoutMs: 60_000 })
+    botorchProbe.set(config.physicsPython, runEngine(config, { engine: "physics", program: config.physicsPython, args: ["-I", "-c", "import botorch; print(botorch.__version__)"], cwd: config.repository, mounts: { write: [] }, timeoutMs: 60_000 })
       .then(r => r.exitCode === 0 ? r.stdout.trim() : null).catch(() => null));
   }
   return botorchProbe.get(config.physicsPython)!;
@@ -160,7 +160,7 @@ export async function optimizeCad(store: Store, config: Config, project: Project
       } catch { /* Presentation only. */ }
     };
     const args = ["-I", native("cad_optimize.py"), "--input", inputFile, "--output", directory];
-    const r = await runEngine(config.repository, { engine: "physics", program: config.physicsPython, args, cwd: config.repository, mounts: { read: [inputFile], write: [directory] },
+    const r = await runEngine(config, { engine: "physics", program: config.physicsPython, args, cwd: config.repository, mounts: { read: [inputFile], write: [directory] },
       timeoutMs: Math.max(600_000, total * 120_000), onLine: observe });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cad-optimize", command: ["python", "cad_optimize.py"], startedAt: r.startedAt, finishedAt: r.finishedAt,

@@ -68,7 +68,7 @@ export function sandboxStatus(config: Config): Promise<SandboxStatus> {
     try {
       const runtime = await sandboxRuntime(config);
       const script = "import socket,os\ntry:\n socket.create_connection(('1.1.1.1',53),timeout=2); print('net')\nexcept OSError: print('isolated', os.path.exists(os.path.expanduser('~/.config')))";
-      const r = await runEngine(config.repository, { engine: "cad", program: bwrap, args: sandboxArgs(config, runtime, { readOnly: [], writable: [] }, [runtime.python, "-I", "-c", script]),
+      const r = await runEngine(config, { engine: "cad", program: bwrap, args: sandboxArgs(config, runtime, { readOnly: [], writable: [] }, [runtime.python, "-I", "-c", script]),
         cwd: "/", mounts: { write: [] }, timeoutMs: 20_000, untrusted: true });
       if (r.exitCode !== 0) return { available: false, bwrap, reason: `bubblewrap 无法创建隔离环境：${r.stderr.trim().split("\n").at(-1)?.slice(0, 160) ?? `exit ${r.exitCode}`}` };
       if (r.stdout.trim() !== "isolated False") return { available: false, bwrap, reason: "沙箱自检未通过（网络或主目录可见）" };

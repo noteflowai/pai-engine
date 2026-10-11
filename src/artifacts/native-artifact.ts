@@ -43,8 +43,8 @@ export async function materialise(ctx: RunContext) {
 export async function nativeStep(ctx: RunContext, interpreter: string, script: string, args: string[], output: string, outputName: string,
   status: (value: Record<string, unknown>) => string, timeoutMs: number): Promise<OperationResult> {
   const t0 = Date.now();
-  const r = await runEngine(ctx.config.repository, { engine: "logistics", program: interpreter, args: ["-I", script, ...args], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs });
-  const receipts = [{ command: ["python", script.split("/").at(-1)!, ...args.filter(a => !a.startsWith("/"))], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000 }];
+  const r = await runEngine(ctx.config, { engine: "logistics", program: interpreter, args: ["-I", script, ...args], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs });
+  const receipts = [{ command: ["python", script.split("/").at(-1)!, ...args.filter(a => !a.startsWith("/"))], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000, runtime: r.runtime }];
   if (r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: `${script.split("/").at(-1)} exited ${r.exitCode}`, receipts,
     usage: { cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: 0 } };
   const text = await readFile(output, "utf8"), value = JSON.parse(text) as Record<string, unknown> & { usage?: { cpuSeconds?: number; maxRssKb?: number } };

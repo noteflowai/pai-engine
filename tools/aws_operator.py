@@ -58,6 +58,19 @@ elif args.action in ("send", "apply-release"):
         for opt_in in ("PAI_PHYSICS_BOTORCH", "PAI_PHYSICS_NEWTON", "PAI_ROBOTS", "PAI_DECIDER"):
             if os.environ.get(opt_in) == "1":
                 variables[opt_in] = "1"
+        # Engine containers (ADR 0004): PAI_ENGINE_CONTAINERS=logistics,... ; images resolved to digests from the
+        # PAISolver stack's tags, so the host pulls exactly what CodeBuild pushed and scanned.
+        if os.environ.get("PAI_ENGINE_CONTAINERS"):
+            look = session(f"cdk-hnb659fds-lookup-role-{ACCOUNT}-{REGION}").client("cloudformation")
+            solver = {o["OutputKey"]: o["OutputValue"] for o in look.describe_stacks(StackName="PAISolver")["Stacks"][0]["Outputs"]}
+            tags, uri = json.loads(solver["EngineImageTags"]), solver["EngineRepositoryUri"]
+            wanted = [e.strip() for e in os.environ["PAI_ENGINE_CONTAINERS"].split(",") if e.strip()]
+            ecr = operator.client("ecr")
+            images = {}
+            for e in wanted:
+                d = ecr.describe_images(repositoryName=uri.split("/", 1)[1], imageIds=[{"imageTag": tags[e]}])["imageDetails"][0]
+                images[e] = f"{uri}@{d['imageDigest']}"
+            variables.update({"PAI_ENGINE_CONTAINERS": ",".join(wanted), "PAI_ENGINE_IMAGES": json.dumps(images, separators=(",", ":"))})
         # FEA scale-out on AWS Batch (PAISolver stack; fixed names, see infra/solver.ts). Opt in per deployment.
         if os.environ.get("PAI_ENABLE_SOLVER_BATCH") == "1":
             account = boto3.client("sts").get_caller_identity()["Account"]

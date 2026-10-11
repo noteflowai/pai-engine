@@ -19,6 +19,8 @@ export interface Config {
   robotsPython?: string; robotsAssets?: string;
   /** Strands Decider `/v1/systemone` endpoint (loopback or private network only); routing suggestions, never verdicts. */
   deciderUrl?: string; deciderModel?: string;
+  /** Container backend of the engine runtime (ADR 0004); engines not listed keep the process backend. */
+  engineContainer?: EngineContainerConfig;
   /** AWS KMS asymmetric key (ECC_NIST_P256) that signs release packages; local Ed25519 when unset. */
   signingKmsKeyId?: string;
   /** RFC 3161 time-stamping authority for release seals (only a SHA-256 digest is sent) and its CA bundle. */
@@ -46,6 +48,29 @@ export interface Config {
   tenants?: Tenant[];
 }
 /** Only a loopback or private-network Decider: the request carries task text. */
+export interface EngineContainerConfig {
+  cli: "podman" | "docker";
+  /** Engine -> image pinned by digest (`registry/repo@sha256:…`). */
+  images: Record<string, string>;
+  /** Engines switched to containers. */
+  engines: string[];
+  /** Host tool prefix that maps to /opt/pai/tools in the images (same layout by construction). */
+  toolsDir: string;
+  /** Rootless podman storage root (graph and run roots below it); also its HOME/XDG dirs. */
+  storageRoot?: string;
+  /** NVIDIA CDI (podman) / --gpus (docker) available on this host. */
+  gpu: boolean;
+}
+function engineContainer(env: NodeJS.ProcessEnv): EngineContainerConfig | undefined {
+  const engines = (env.PAI_ENGINE_CONTAINERS ?? "").split(",").map(x => x.trim()).filter(Boolean);
+  if (!engines.length) return undefined;
+  const images = JSON.parse(env.PAI_ENGINE_IMAGES || "{}") as Record<string, string>;
+  for (const e of engines) if (!/^[a-z0-9.-]+(:[0-9]+)?\/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(images[e] ?? ""))
+    throw new Error(`PAI_ENGINE_IMAGES must pin ${e} by digest`);
+  const cli = env.PAI_ENGINE_CONTAINER_CLI === "docker" ? "docker" : "podman";
+  if (!env.PAI_ENGINE_TOOLS_DIR) throw new Error("PAI_ENGINE_TOOLS_DIR is required with PAI_ENGINE_CONTAINERS");
+  return { cli, images, engines, toolsDir: env.PAI_ENGINE_TOOLS_DIR.replace(/\/+$/, ""), storageRoot: env.PAI_CONTAINERS_ROOT || undefined, gpu: env.PAI_ENGINE_GPU === "1" };
+}
 function deciderUrl(value?: string): string | undefined {
   if (!value) return undefined;
   const u = new URL(value);
@@ -102,6 +127,7 @@ export function configuration(): Config {
     logisticsPython: process.env.PAI_LOGISTICS_PYTHON || undefined,
     robotsPython: process.env.PAI_ROBOTS_PYTHON || undefined, robotsAssets: process.env.PAI_ROBOTS_ASSETS || undefined,
     deciderUrl: deciderUrl(process.env.PAI_DECIDER_URL), deciderModel: process.env.PAI_DECIDER_MODEL || undefined,
+    engineContainer: engineContainer(process.env),
     signingKmsKeyId: process.env.PAI_SIGNING_KMS_KEY_ID || undefined,
     tsaUrl: process.env.PAI_TSA_URL || undefined, tsaCaFile: process.env.PAI_TSA_CA_FILE || undefined,
     openfoamImage: /^[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(process.env.PAI_OPENFOAM_IMAGE ?? "") ? process.env.PAI_OPENFOAM_IMAGE : undefined,

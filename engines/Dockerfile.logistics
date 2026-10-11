@@ -2,6 +2,7 @@
 # PAI engine image: logistics (Google OR-Tools, hash-locked) (ADR 0004). Toolchain only: the release's native/ scripts are mounted read-only at run time,
 # so a script change never rebuilds an image. Installed by the same tools/setup_*.py as the host, into the same
 # layout (PAI_TOOLS_DIR=/opt/pai/tools), so the engine runtime maps a host tool path to the image by prefix.
+# pip (system and venv copies) is removed after install: nothing installs at run time.
 ARG BASE=public.ecr.aws/docker/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 FROM ${BASE}
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PAI_TOOLS_DIR=/opt/pai/tools PAI_ENV_FILE=/tmp/pai-setup.env
@@ -11,7 +12,9 @@ COPY --chmod=0644 native/logistics-requirements.txt /opt/pai/src/native/
 RUN python3 /opt/pai/src/tools/setup_logistics.py \
  && /opt/pai/tools/logistics-1/bin/python -c "import ortools; print('ortools', ortools.__version__)" \
  && find /opt/pai/tools -name __pycache__ -prune -exec rm -rf {} + && rm -rf /opt/pai/src /tmp/pai-setup.env \
- && chmod -R a+rX,go-w /opt/pai
+ && chmod -R a+rX,go-w /opt/pai \
+ && rm -rf /opt/pai/tools/*/lib/python3*/site-packages/pip /opt/pai/tools/*/lib/python3*/site-packages/pip-* /opt/pai/tools/*/bin/pip* \
+ && (apt-get purge -y -qq python3-venv python3-pip-whl python3-setuptools-whl >/dev/null 2>&1 || true) && apt-get autoremove -y -qq >/dev/null && rm -rf /var/lib/apt/lists/*
 ARG PAI_IMAGE_VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/noteflowai/pai-engine" org.opencontainers.image.title="pai-engine-logistics"
 ENV PAI_IMAGE_VERSION=${PAI_IMAGE_VERSION} PAI_ENGINE=logistics HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
