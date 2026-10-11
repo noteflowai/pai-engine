@@ -68,3 +68,7 @@
 
 五段成片都没有剪切或调换顺序，只把画面静止的等待片段加速播放。CAD 演示的回执见 [demo.json](evidence/demo.json)。
 
+**演示 F · 场外物流孪生**：[media/yard-twin.mp4](media/yard-twin.mp4)（约 30 秒，1440×640）。同一个合成工作日、同样的扰动（3 辆晚到、D4 停用 30 分钟），先到先服务与 PAI Engine（CP-SAT，传感器触发重排）并排运行；每一帧都来自 `native/yard_twin.py` 这次运行的方案，两份最终方案都经独立核验器通过。回执：[evidence/yard-twin.json](evidence/yard-twin.json)。复现：`npm run demo:yard-twin`。
+
+[![F](media/yard-twin.gif)](media/yard-twin.mp4)
+

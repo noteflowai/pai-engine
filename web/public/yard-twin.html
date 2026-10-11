@@ -1,0 +1,111 @@
+<!doctype html>
+<!-- Yard digital twin player: replays a pai-yard-twin-1 record (window.TWIN) minute by minute, both policies side by
+     side. Every position on screen comes from the recorded schedules; nothing is animated that the twin did not decide. -->
+<html lang="zh-CN"><head><meta charset="utf-8"><title>PAI Engine · 场外物流孪生</title>
+<style>
+  :root { --bg:#0e1a1f; --panel:#13242b; --line:#2a4148; --ink:#e8f1ef; --mut:#8fa8a5; --ok:#3bbf8f; --warn:#f2b84b; --bad:#ef6a5b; --reefer:#5aa9ff; --std:#3bbf8f; --bulk:#d9924a; }
+  * { box-sizing: border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 Inter,"Noto Sans SC",sans-serif; }
+  header { display:flex; justify-content:space-between; align-items:center; padding:14px 22px 6px; }
+  h1 { font-size:20px; margin:0; } .sub { color:var(--mut); font-size:12.5px; }
+  .clock { font:700 28px/1 ui-monospace,monospace; letter-spacing:1px; }
+  main { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding:6px 22px; }
+  .site { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px 12px 12px; }
+  .site h2 { margin:0 0 6px; font-size:15px; display:flex; justify-content:space-between; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:999px; background:#203a41; color:var(--mut); }
+  svg { width:100%; height:auto; display:block; }
+  .kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px; }
+  .kpi { background:#0f1e23; border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
+  .kpi b { display:block; font-size:20px; } .kpi span { font-size:11px; color:var(--mut); }
+  footer { display:flex; gap:14px; align-items:center; padding:6px 22px 14px; color:var(--mut); font-size:12px; }
+  .log { flex:1; display:flex; gap:8px; overflow:hidden; white-space:nowrap; }
+  .ev { background:#2a1f12; color:var(--warn); border:1px solid #5a4320; padding:3px 8px; border-radius:6px; }
+  .ev.plan { background:#10302a; color:var(--ok); border-color:#1f5a4b; }
+</style></head>
+<body>
+<header><div><h1>场外物流孪生 · 场地准入与排队调度</h1>
+  <div class="sub">PAI Engine 本体建模：场地 · 门岗 · 堆场车位 · 月台 · 作业班组 · 车辆 / 货物 · 传感器（门岗车牌识别、月台门磁、堆场占用）。同一天、同样的扰动，两种决策方式。</div></div>
+  <div style="text-align:right"><div class="clock" id="clock">06:00</div><div class="sub">合成场地 · 种子 7 · 方案均经独立核验</div></div></header>
+<main><section class="site" id="fcfs"></section><section class="site" id="cp-sat"></section></main>
+<footer><span>传感器事件</span><div class="log" id="log"></div><span id="legend"><b style="color:var(--std)">■</b> 普货 <b style="color:var(--reefer)">■</b> 冷链 <b style="color:var(--bulk)">■</b> 散货 · 圆点 = 门外排队（半透明 = 将被拒） · 方块 = 堆场 / 月台作业</span></footer>
+<script>
+const T = window.TWIN, P = T.problem, H = Math.max(...Object.values(T.policies).flatMap(x => x.schedule.filter(r => r.admitted).map(r => r.departure))) + 10;
+const color = { standard: "var(--std)", reefer: "var(--reefer)", bulk: "var(--bulk)" };
+const by = Object.fromEntries(P.trucks.map(t => [t.id, t]));
+const late = T.disturbances.late, dd = T.disturbances.dockDown;
+const realArrival = id => by[id].arrival[0] + (late[id] ?? 0);
+const hhmm = m => `${String(6 + Math.floor(m / 60)).padStart(2, "0")}:${String(Math.floor(m) % 60).padStart(2, "0")}`;
+const W = 640, HH = 360, docks = P.docks, slots = P.site.yardSlots;
+const name = { fcfs: "先到先服务（今天的做法）", "cp-sat": "PAI Engine · CP-SAT + 传感器触发重排" };
+function frame(policy, m) {
+  const pol = T.policies[policy], rows = pol.schedule;
+  const queue = [], yard = [], atDock = {}, done = [], away = [];
+  for (const r of rows) {
+    const t = by[r.truck], arr = realArrival(r.truck);
+    if (!r.admitted) { if (m >= arr) away.push(t); continue; }
+    if (m >= r.departure) done.push(t);
+    else if (m >= r.handleStart) atDock[r.dock] = { t, p: (m - r.handleStart) / (r.handleEnd - r.handleStart) };
+    else if (m >= r.entry) yard.push(t);
+    else if (m >= arr) queue.push(t);
+  }
+  // Turned-away trucks wait at the gate until their window closes, then leave.
+  const waiting = [...queue, ...away.filter(t => m < t.arrival[1] + (late[t.id] ?? 0))];
+  const used = yard.reduce((s, t) => s + t.slots, 0) + Object.values(atDock).reduce((s, x) => s + x.t.slots, 0);
+  const box = (x, y, w, h, fill, extra = "") => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="${fill}" ${extra}/>`;
+  let g = `<rect x="0" y="0" width="${W}" height="${HH}" rx="8" fill="#0f1e23"/>`;
+  // road + gate
+  g += `<rect x="0" y="292" width="${W}" height="40" fill="#1a2c32"/><text x="10" y="287" fill="#8fa8a5" font-size="11">入场道路 · 门岗 ${P.gate.lanes} 车道</text>`;
+  g += box(250, 286, 30, 52, "#2a4148") + `<circle cx="265" cy="298" r="5" fill="${m % 2 < 1 ? "#5aa9ff" : "#2c5f8f"}"/><text x="285" y="350" fill="#8fa8a5" font-size="10">车牌识别</text>`;
+  waiting.forEach((t, i) => { g += `<circle cx="${236 - i * 13}" cy="312" r="5.5" fill="${color[t.cargo]}" opacity="${queue.includes(t) ? 1 : .45}"/>`; });
+  // yard
+  g += `<text x="10" y="196" fill="#8fa8a5" font-size="11">堆场车位 ${used}/${slots}</text><rect x="10" y="200" width="${W - 20}" height="70" rx="6" fill="none" stroke="#2a4148" stroke-dasharray="4 4"/>`;
+  g += `<rect x="10" y="272" width="${(W - 20) * Math.min(1, used / slots)}" height="5" rx="2" fill="${used >= slots ? "var(--bad)" : "var(--ok)"}"/>`;
+  yard.forEach((t, i) => { g += box(18 + (i % 14) * 43, 210 + Math.floor(i / 14) * 28, 18 * t.slots, 20, color[t.cargo]) + `<text x="${20 + (i % 14) * 43}" y="224" fill="#0e1a1f" font-size="9">${t.id}</text>`; });
+  // docks
+  const dw = (W - 20) / docks.length;
+  docks.forEach((d, k) => {
+    const x = 10 + k * dw, down = d.id === dd.dock && m >= dd.from && m < dd.to, here = atDock[d.id];
+    g += box(x + 4, 18, dw - 8, 150, down ? "#3a1c19" : "#17292f", `stroke="${down ? "var(--bad)" : "#2a4148"}"`);
+    g += `<text x="${x + 10}" y="36" fill="#e8f1ef" font-size="12" font-weight="700">${d.id}</text><text x="${x + 10}" y="50" fill="#8fa8a5" font-size="10">${d.cargo.filter(c => c !== "outage").map(c => ({ reefer: "冷链", standard: "普货", bulk: "散货" })[c] ?? c).join("·")} ≤${d.maxLengthM}m</text>`;
+    g += `<circle cx="${x + dw - 16}" cy="31" r="5" fill="${down ? "var(--bad)" : here ? "var(--ok)" : "#39525a"}"/>`;
+    if (down) g += `<text x="${x + 10}" y="100" fill="var(--bad)" font-size="12" font-weight="700">门磁报警 · 停用</text>`;
+    if (here) { const t = here.t; g += box(x + 12, 70, dw - 24, 34 + 8 * t.slots, color[t.cargo]) + `<text x="${x + 18}" y="90" fill="#0e1a1f" font-size="12" font-weight="700">${t.id}</text>`
+      + `<text x="${x + 18}" y="104" fill="#0e1a1f" font-size="10">${t.carrier}</text>` + box(x + 12, 140, (dw - 24) * here.p, 6, "#e8f1ef"); }
+  });
+  const k = live(policy, m);
+  return `<h2><span>${name[policy]}</span><span class="tag">${pol.verification === "valid-schedule" ? "独立核验通过" : "核验未通过"}</span></h2>
+    <svg viewBox="0 0 ${W} ${HH}">${g}</svg>
+    <div class="kpis"><div class="kpi"><b>${k.done}/${P.trucks.length}</b><span>已完成作业</span></div><div class="kpi"><b style="color:${k.away ? "var(--bad)" : "var(--ok)"}">${k.away}</b><span>被拒入场</span></div>
+    <div class="kpi"><b>${k.turn}</b><span>平均在场 min</span></div><div class="kpi"><b>${k.reefer}</b><span>冷链已作业</span></div></div>`;
+}
+function live(policy, m) {
+  const rows = T.policies[policy].schedule, fin = rows.filter(r => r.admitted && r.departure <= m);
+  return { done: fin.length, away: rows.filter(r => !r.admitted && m >= realArrival(r.truck) + (by[r.truck].arrival[1] - by[r.truck].arrival[0])).length,
+    turn: fin.length ? Math.round(fin.reduce((s, r) => s + r.departure - r.entry, 0) / fin.length) : "—", reefer: fin.filter(r => by[r.truck].cargo === "reefer").length };
+}
+const events = [...T.policies["cp-sat"].events.map(e => ({ at: e.at, text: `${hhmm(e.at)} ${e.sensor} · ${e.detail}`, cls: "" })),
+  ...T.policies["cp-sat"].replans.filter(r => r.at > 0).map(r => ({ at: r.at, text: `${hhmm(r.at)} PAI 重排 · 重新决定 ${r.redecided ?? "?"} 辆 · 核验后采用`, cls: "plan" }))].sort((a, b) => a.at - b.at);
+window.render = m => {
+  document.getElementById("clock").textContent = hhmm(m);
+  for (const p of ["fcfs", "cp-sat"]) document.getElementById(p).innerHTML = frame(p, m);
+  document.getElementById("log").innerHTML = events.filter(e => e.at <= m).slice(-4).map(e => `<span class="ev ${e.cls}">${e.text}</span>`).join("");
+};
+window.HORIZON = H;
+window.summary = () => {
+  const k = p => T.policies[p].kpi;
+  const row = (l, a, b, better) => `<tr><td>${l}</td><td>${a}</td><td style="color:var(--ok);font-weight:700">${b}</td></tr>`;
+  const el = document.createElement("div");
+  el.style.cssText = "position:fixed;inset:0;background:#0e1a1fee;display:grid;place-items:center;z-index:9";
+  el.innerHTML = `<div style="background:#13242b;border:1px solid #2a4148;border-radius:14px;padding:26px 34px;min-width:640px">
+    <div style="font-size:22px;font-weight:700;margin-bottom:4px">同一天，同样的扰动（3 辆晚到 · ${dd.dock} 停用 30 min）</div>
+    <div style="color:var(--mut);margin-bottom:14px">两份最终方案都经独立核验器按分钟重算通过 · 合成场地，不派车</div>
+    <table style="width:100%;font-size:16px;border-collapse:collapse" cellpadding="6"><tr style="color:var(--mut)"><td></td><td>先到先服务</td><td>PAI Engine · CP-SAT</td></tr>
+    ${row("入场车辆", `${k("fcfs").admitted}/${P.trucks.length}`, `${k("cp-sat").admitted}/${P.trucks.length}`)}
+    ${row("被拒入场", k("fcfs").turnedAway, k("cp-sat").turnedAway)}
+    ${row("优先级分", k("fcfs").priorityAdmitted, k("cp-sat").priorityAdmitted)}
+    ${row("冷链作业", k("fcfs").reeferAdmitted, k("cp-sat").reeferAdmitted)}
+    ${row("平均在场时间", k("fcfs").avgTurnaroundMin + " min", k("cp-sat").avgTurnaroundMin + " min")}
+    ${row("传感器触发重排", "—", T.policies["cp-sat"].replans.length - 1 + " 次")}</table></div>`;
+  document.body.appendChild(el);
+};
+if (!window.MANUAL) { let m = 0; const tick = () => { render(m); m = (m + 1) % H; setTimeout(tick, 60); }; tick(); }
+</script></body></html>
