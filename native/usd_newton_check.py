@@ -9,7 +9,7 @@ The USD is what Isaac Lab / Newton users receive, so it must carry the same robo
 - the authored body Xforms equal Newton FK at the authored pose (the stage is self-consistent).
 Kinematics and mass only; no dynamics claim. Exit 0 with passed:false when a check fails; exit 2 on a load error.
 """
-import argparse, hashlib, json, sys, time
+import argparse, hashlib, json, os, sys, time
 from pathlib import Path
 import numpy as np
 
@@ -26,7 +26,9 @@ stage = Usd.Stage.Open(a.usd)
 pose = list(stage.GetRootLayer().customLayerData.get("poseJointRadians", []))
 builder = newton.ModelBuilder()
 builder.add_usd(a.usd)
-model = builder.finalize(device="cpu")
+# CUDA (Warp) when the runtime offered a GPU, else the CPU; the checks compare against MuJoCo with fixed tolerances.
+DEVICE = "cuda" if os.environ.get("PAI_GPU") == "1" and wp.is_cuda_available() else "cpu"
+model = builder.finalize(device=DEVICE)
 labels = [l.rsplit("/", 1)[-1] for l in model.body_label]
 mj = mujoco.MjModel.from_xml_path(a.mjcf); md = mujoco.MjData(mj)
 from pxr import Tf
@@ -84,7 +86,7 @@ checks = [
     {"id": "fk-orientation", "passed": fk_rot <= ROT_TOL_DEG, "observed": round(fk_rot, 6), "required": ROT_TOL_DEG, "unit": "deg"},
     {"id": "authored-pose", "passed": len(pose) == 6 and authored <= POS_TOL, "observed": round(authored, 9), "required": POS_TOL, "unit": "m"},
 ]
-out = {"schema": "pai-usd-newton-1", "newton": newton.__version__, "warp": wp.__version__, "mujoco": mujoco.__version__,
+out = {"schema": "pai-usd-newton-1", "device": DEVICE, "newton": newton.__version__, "warp": wp.__version__, "mujoco": mujoco.__version__,
        "usdSha256": hashlib.sha256(Path(a.usd).read_bytes()).hexdigest(), "mjcfSha256": hashlib.sha256(Path(a.mjcf).read_bytes()).hexdigest(),
        "bodies": labels, "configurations": len(configs), "checks": checks, "passed": all(c["passed"] for c in checks),
        "seconds": round(time.time() - t0, 1), "scope": "kinematics-and-mass-conformance", "physicalValidation": False}

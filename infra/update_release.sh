@@ -120,7 +120,34 @@ if [ -n "${PAI_ENGINE_CONTAINERS:-}" ] && [ -n "${PAI_ENGINE_IMAGES:-}" ]; then
     used=$(runuser -u pai -- env $ENVS $PODMAN image inspect --format '{{range .RepoDigests}}{{.}} {{end}}' "$id" | tr ' ' '\n' | grep -cxF -f <(printf '%s' "$PAI_ENGINE_IMAGES" | python3 -c "import json,sys;print('\n'.join(json.load(sys.stdin).values()))") || true)
     [ "$used" = "0" ] && runuser -u pai -- env $ENVS $PODMAN rmi -f "$id" >/dev/null 2>&1 || true
   done
-  GPU=0; [ -s /etc/cdi/nvidia.yaml ] && GPU=1
+  # GPU for engine containers: NVIDIA's nvidia-ctk (official signed repository, key fingerprint and version pinned in
+  # tools/runtime-pins.json) generates the CDI spec, regenerated on every release so it follows driver updates.
+  GPU=0
+  if nvidia-smi -L >/dev/null 2>&1; then
+    NV=$(python3 -c "import json;p=json.load(open('$RELEASE/tools/runtime-pins.json'))['nvidiaContainerToolkit'];print(p['package'],p['version'],p['repository'],p['keyUrl'],p['keyFingerprint'])")
+    read -r NV_PKG NV_VER NV_REPO NV_KEY NV_FPR <<< "$NV"
+    KEYRING=/usr/share/keyrings/nvidia-container-toolkit.gpg
+    if [ "$(dpkg-query -W -f='${Version}' "$NV_PKG" 2>/dev/null)" != "$NV_VER" ]; then
+      curl -fsSL "$NV_KEY" -o "$PAI_TMP/nv.key"
+      [ "$(gpg --show-keys --with-colons "$PAI_TMP/nv.key" 2>/dev/null | awk -F: '/^fpr/{print $10; exit}')" = "$NV_FPR" ] || { echo "NVIDIA key fingerprint mismatch" >&2; exit 1; }
+      gpg --dearmor < "$PAI_TMP/nv.key" > "$KEYRING.tmp" && mv "$KEYRING.tmp" "$KEYRING" && chmod 644 "$KEYRING" && rm -f "$PAI_TMP/nv.key"
+      echo "deb [signed-by=$KEYRING] $NV_REPO /" > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      apt-get update -qq -o Dir::Etc::sourcelist=sources.list.d/nvidia-container-toolkit.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "$NV_PKG=$NV_VER" >/dev/null
+    fi
+    install -d -m 0755 /etc/cdi; rm -f /etc/cdi/nvidia.yaml
+    nvidia-ctk cdi generate --format json --output="$PAI_TMP/nvidia-cdi.json" >/dev/null 2>&1
+    # podman 4.9 reads CDI <= 0.6.0; only additionalGids (for /dev/dri, not applicable to a single-uid mapping) needs 0.7.0.
+    python3 - "$PAI_TMP/nvidia-cdi.json" /etc/cdi/nvidia.json <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+for e in [d["containerEdits"] for d in s["devices"]] + [s.get("containerEdits", {})]:
+    e.pop("additionalGids", None)
+s["cdiVersion"] = "0.6.0"
+json.dump(s, open(sys.argv[2], "w"), indent=1)
+PY
+    chmod 644 /etc/cdi/nvidia.json; rm -f "$PAI_TMP/nvidia-cdi.json"; GPU=1
+  fi
   sed -i '/^PAI_ENGINE_CONTAINERS=/d;/^PAI_ENGINE_IMAGES=/d;/^PAI_ENGINE_TOOLS_DIR=/d;/^PAI_CONTAINERS_ROOT=/d;/^PAI_ENGINE_CONTAINER_CLI=/d;/^PAI_ENGINE_GPU=/d' /etc/pai/runtime.env
   case "$PAI_ENGINE_IMAGES" in *"'"*) echo "PAI_ENGINE_IMAGES must not contain single quotes" >&2; exit 1 ;; esac
   printf "PAI_ENGINE_CONTAINERS=%s\nPAI_ENGINE_IMAGES='%s'\nPAI_ENGINE_TOOLS_DIR=/var/lib/pai/data/state/tools\nPAI_CONTAINERS_ROOT=%s\nPAI_ENGINE_CONTAINER_CLI=podman\nPAI_ENGINE_GPU=%s\n" \
