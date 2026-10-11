@@ -30,6 +30,9 @@ with tarfile.open(archive) as file:
     file.extractall(release, filter="data")
 PY
 if [ ! -e "$RELEASE/.state" ]; then ln -s /var/lib/pai/data/state "$RELEASE/.state"; fi
+# demo.env is written through a release's .state symlink; paths that name a release directory break once that release
+# is pruned (only the last 5 are kept). Point them at the persistent state they resolve to.
+if [ -f /var/lib/pai/data/state/demo.env ]; then sed -i -E 's#/opt/pai/releases/[0-9a-f]{64}/\.state/#/var/lib/pai/data/state/#g' /var/lib/pai/data/state/demo.env; fi
 chown -R pai:pai "$RELEASE"
 cd "$RELEASE"
 NODE_VERSION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['node']['version'])" "$PAI_RELEASE/tools/runtime-pins.json")
