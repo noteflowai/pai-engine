@@ -28,7 +28,7 @@ export interface RunSpec<R extends NativeRecord, Q extends { requestId: string; 
   /** Code for unexpected failures, e.g. "CFD_FAILED"; the message stays generic. */
   failure: string;
   /** For rechecks: the original run must have had these same requirements (lane-specific comparison). */
-  recheck?: { label: string; sameRequirements: (original: R) => boolean };
+  recheck?: { message: string; sameRequirements: (original: R) => boolean };
   /** The lane's work: fill the record, return the verdict. Throw DomainError for expected refusals. */
   work: (record: R, publish: LiveBus["publish"]) => Promise<NonNullable<R["verdict"]>>;
 }
@@ -60,6 +60,6 @@ function bindRecheck<R extends NativeRecord>(store: Store, s: RunSpec<R, { reque
   const original = f ? store.get<R>(s.kind, f.runId) : undefined;
   if (!f || f.evidenceKind !== s.evidenceKind || f.projectId !== s.project.id || !["fix-proposed", "no-change-with-reason"].includes(f.status)
       || !original || !s.recheck?.sameRequirements(original)) {
-    throw new DomainError("INVALID_RECHECK", `${s.recheck?.label ?? "Recheck"} must bind the same feedback and unchanged requirements`);
+    throw new DomainError("INVALID_RECHECK", s.recheck?.message ?? "Recheck must bind the same feedback and unchanged requirements");
   }
 }

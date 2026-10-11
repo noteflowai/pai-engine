@@ -7,6 +7,7 @@ import { command, NativeAdapters, writePrivate } from "./adapters.js";
 import type { Config } from "./config.js";
 import { Id, type Feedback, type Project, type Receipt, type DiffResult } from "./contracts.js";
 import { canonical, DomainError, sha256 } from "./domain.js";
+import { nativeRun } from "./kernel/native-run.js";
 import { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
 import { NativeEvent, type SceneStage } from "./scenes.js";
@@ -294,6 +295,7 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
   const request = CadRequest.parse(input);
   const publish: LiveBus["publish"] = (key, event) => live?.publish(key, event);
   if (!config.cadquery) throw new DomainError("CAD_NOT_CONFIGURED", "Set PAI_CADQUERY_PYTHON to a pinned CadQuery interpreter (npm run setup:cad)", 503);
+  const cadqueryPython = config.cadquery;
   // Fail closed: frozen structural requirements are never silently skipped.
   if (request.requirements.structural && (!config.physicsPython || !config.ccx)) {
     throw new DomainError("FEA_NOT_CONFIGURED", "Structural requirements need the pinned FEA toolchain (npm run setup:physics: PAI_PHYSICS_PYTHON, PAI_CCX)", 503);
@@ -319,147 +321,133 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
     requirementDigest: sha256(canonical({ projectRequirements: project.requirements, cadRequirements: request.requirements })),
     state: "running", createdAt: new Date().toISOString(), feedbackId: request.feedbackId,
     receipts: [], sourceDigests: {}, files: {}, scope: "parametric-part-geometry", physicalValidation: false };
-  const claimed = store.claim(request.requestId, sha256(canonical({ kind: "cad-part", projectId: project.id, request })), record, "cad-review");
-  if (claimed !== record.id) return store.get<CadReview>("cad-review", claimed)!;
-  publish(request.requestId, { kind: "record", recordKind: "cad-review", recordId: record.id });
   const directory = join(config.state, "cad", record.id);
-  try {
-    if (project.revision !== request.projectRevision) throw new DomainError("REVISION_CONFLICT", "Freeze the current requirement revision");
-    if (request.feedbackId) {
-      const f = store.get<Feedback>("feedback", request.feedbackId);
-      const original = f ? store.get<CadReview>("cad-review", f.runId) : undefined;
-      if (!f || f.evidenceKind !== "cad-part" || f.projectId !== project.id || !["fix-proposed", "no-change-with-reason"].includes(f.status)
-          || canonical(original?.request.requirements) !== canonical(request.requirements)) {
-        throw new DomainError("INVALID_RECHECK", "CAD recheck must bind the same feedback and unchanged part requirements");
+  return nativeRun({ store, live, project, kind: "cad-review", evidenceKind: "cad-part", request, record, failure: "CAD_FAILED",
+    recheck: { message: "CAD recheck must bind the same feedback and unchanged part requirements", sameRequirements: original => canonical(original.request.requirements) === canonical(request.requirements) },
+    work: async record => {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const native = (file: string) => join(config.repository, "native", file);
+      const family = familyOf(request);
+      const script = native(FAMILY_SCRIPT[family]), lock = native("cadquery-requirements.txt");
+      const structural = request.requirements.structural;
+      const cam = request.requirements.dfm?.cam;
+      if (cam && !camConfigured(config)) throw new DomainError("CAM_NOT_CONFIGURED", "CAM needs the pinned FreeCAD toolchain (npm run setup:cam) or the PAISolver CAM job", 503);
+      const used = [...(request.requirements.dfm ? ["cad_dfm.py", "dfm-shop.json"] : []), ...(cam ? ["cam_part.py", "cam_verify.py", "cam-requirements.txt", ...(camRunner(config) === "batch" ? ["cam_remote.py", "cam_job.py"] : [])] : []), FAMILY_SCRIPT[family], ...(family === "nema17-bracket" ? ["cad_recipe.py"] : []), "cad_checks.py", ...(generated ? ["cad_code_policy.py", "cad_sandbox.py", "cad_generated.py", "cad_bearing.py"].filter(f => f !== FAMILY_SCRIPT[family]) : []),
+        ...(structural ? [FAMILY_FEA[family].script, "fea_core.py"] : [])];
+      const scriptDigests = async () => Object.fromEntries(await Promise.all(used.map(async f => [f.replace(/_/g, "-"), sha256(await readFile(native(f)))])));
+      const adapters = new NativeAdapters(config);
+      const scriptHash = sha256(await readFile(script));
+      const scriptsBefore = await scriptDigests();
+      const nativeBefore = await adapters.sourceDigests();
+      const codeSha256 = generated ? sha256(generated.code) : undefined;
+      record.sourceDigests = { ...nativeBefore, ...scriptsBefore, "cadquery-lock": sha256(await readFile(lock)), "cadquery-python": sha256(await readFile(cadqueryPython)),
+        ...(structural ? { "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "ccx": sha256(await readFile(config.ccx!)) } : {}),
+        ...(codeSha256 ? { "generated-code": codeSha256 } : {}) };
+      const remote = Boolean(generated && config.agentcoreSandboxArn);
+      const runtime = generated && !remote ? await sandboxRuntime(config) : undefined;
+      const bwrap = config.bwrap ?? "bwrap";
+      // Reference and candidate are produced concurrently (each its own directory and native processes), like the aero
+      // lane; both always settle before the record moves on, so a failure never races with the other part's writes.
+      const cadquery = cadqueryPython;
+      const ownReceipts = { baseline: [] as Receipt[], candidate: [] as Receipt[] };
+      // The baseline is the family's reference design.
+      const reference = family === "pillow-block" ? "pillow-block" : "reference";
+      const parts = await Promise.allSettled(([["baseline", reference], ["candidate", request.variant]] as const).map(async ([name, variant]) => {
+        const target = join(directory, name);
+        // Receipts per part, merged in a fixed order (baseline, candidate) once both settle, so records are deterministic.
+        const own = ownReceipts[name];
+        const part = new Proxy(record, { get: (t, k) => k === "receipts" ? own : Reflect.get(t, k), set: (t, k, v) => k === "receipts" ? false : Reflect.set(t, k, v) });
+        const label = `CadQuery ${name === "baseline" ? "基准零件" : "候选零件"}（${variant}）`;
+        publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: "running", which: name });
+        const input = join(directory, `${name}-input.json`);
+        await writePrivate(input, JSON.stringify({ variant, family, requirements: request.requirements, ...(codeSha256 ? { codeSha256 } : {}),
+          ...(variant === "parametric" ? { parameters: request.parameters } : {}) }));
+        await mkdir(target, { recursive: true, mode: 0o700 });
+        const sandboxed = Boolean(generated && name === "candidate");
+        if (sandboxed && remote) {
+          await buildRemote(config, publish, part, target, generated!, codeSha256!, request.requirements, request.requestId);
+          publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: "done", which: name, detail: "AgentCore microVM" });
+        } else if (sandboxed) await buildGenerated(config, publish, part, directory, runtime!, generated!, codeSha256!, request.requestId);
+        let observed = Promise.resolve();
+        const observe = (line: string) => {
+          if (!line.startsWith("PAI_EVENT ")) return;
+          observed = observed.then(async () => {
+            const parsed = NativeEvent.safeParse((() => { try { return JSON.parse(line.slice(10)); } catch { return undefined; } })());
+            if (!parsed.success || parsed.data.type !== "stage") return;
+            const e = parsed.data;
+            const digest = sha256(await readFile(join(target, e.file)));
+            const stage: SceneStage = { index: e.index, id: e.id, label: e.label, file: e.file, sha256: digest, objects: e.objects };
+            record.stages = { ...record.stages, [name]: [...(record.stages?.[name] ?? []), stage] };
+            store.put("cad-review", record);
+            publish(request.requestId, { kind: "stage", which: name, index: e.index, id: e.id, label: e.label, objects: e.objects,
+              url: `/api/cad/${record.id}/stages/${name}/${e.index}`, sha256: digest });
+          }).catch(() => { /* Presentation events never fail the native review. */ });
+        };
+        if (!(sandboxed && remote)) {
+        const args = sandboxed
+          ? sandboxArgs(config, runtime!, { readOnly: [input, join(directory, "candidate-src")], writable: [target] },
+            [runtime!.python, "-I", "-W", "ignore", join(runtime!.native, "cad_generated.py"), "--input", input, "--source", join(directory, "candidate-src"), "--output", target])
+          : ["-I", "-W", "ignore", script, "--input", input, "--output", target];
+        const r = await command(sandboxed ? bwrap : cadquery, args, config.repository, undefined, 180_000, observe);
+        await observed;
+        await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
+        await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
+        own.push({ adapter: sandboxed ? "cadquery-sandbox-check" : "cadquery-native", command: sandboxed ? ["bwrap", "…", "python", "cad_generated.py"] : ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
+          exitCode: r.exitCode, stdoutSha256: sha256(r.stdout),
+          sourceDigests: sandboxed ? { script: scriptsBefore["cad-generated.py"], checks: scriptsBefore["cad-checks.py"] } : { script: scriptHash, checks: scriptsBefore["cad-checks.py"] } });
+        publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name, detail: `exit ${r.exitCode}` });
+        store.put("cad-review", record);
+        if (r.exitCode !== 0) throw new DomainError("CAD_FAILED", "Native CAD production failed; retain receipts and inspect local artifacts", 422);
+        }
+        const checks = CadChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
+        if (checks.variant !== variant) throw new DomainError("CAD_CONTEXT", "Native CAD variant mismatch");
+        if (canonical(checks.checks.map(c => c.id)) !== canonical(FAMILY_CHECKS[family])) throw new DomainError("CAD_CONTEXT", "Native CAD produced unexpected checks");
+        if (structural) {
+          const fea = await runFea(config, publish, part, request.requestId, name, target, checks, structural, family);
+          checks.checks.push(...fea.checks);
+          const { checks: _measured, ...summary } = fea;
+          record.fea = { ...record.fea, [name]: summary };
+        }
+        record[name] = checks;
+        const dfm = request.requirements.dfm;
+        if (dfm) {
+          publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM：三轴铣削装夹、钻孔与单件成本（${name === "baseline" ? "基准" : "候选"}）`, status: "running", which: name });
+          const r = await command(cadquery, ["-I", "-W", "ignore", native("cad_dfm.py"), "--step", join(target, "part.step"), "--shop", native("dfm-shop.json"),
+            "--requirements", JSON.stringify(dfm), "--output", join(target, "dfm.json")], config.repository, undefined, 180_000);
+          own.push({ adapter: "cadquery-dfm", command: ["python", "cad_dfm.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
+            stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(native("cad_dfm.py"))), shop: sha256(await readFile(native("dfm-shop.json"))) } });
+          publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM（${name === "baseline" ? "基准" : "候选"}）`, status: r.exitCode === 0 ? "done" : "failed", which: name,
+            detail: (() => { try { const d = JSON.parse(r.stdout.trim().split("\n").at(-1)!); return `${d.setups.length} 次装夹（${d.setups.join("、")}）· 估算 ${d.unitCostEur} EUR · 加工 ${d.machiningMinutes} min`; } catch { return `exit ${r.exitCode}`; } })() });
+          if (r.exitCode !== 0) throw new DomainError("DFM_FAILED", "Native DFM analysis failed; retain receipts", 422);
+          const measured = z.object({ schema: z.literal("pai-dfm-1"), checks: z.array(z.object({ id: z.enum(DFM_CHECKS), passed: z.boolean() }).passthrough()).length(DFM_CHECKS.length) }).passthrough()
+            .parse(JSON.parse(await readFile(join(target, "dfm.json"), "utf8")));
+          checks.checks.push(...measured.checks as typeof checks.checks);
+          if (dfm.cam) checks.checks.push(...await runCam(config, publish, part, request.requestId, name, target, dfm.cam) as typeof checks.checks);
+        }
+        const expected = [...FAMILY_CHECKS[family], ...(structural ? FAMILY_FEA_CHECKS[family] : []), ...(dfm ? DFM_CHECKS : []), ...(dfm?.cam ? CAM_CHECKS : [])];
+        await writeFile(join(directory, name === "baseline" ? "baseline.xml" : "current.xml"), checksXml(checks, expected), { mode: 0o600, flag: "wx" });
+        for (const file of [...CAD_FILES, ...(structural ? feaFiles(family) : []), ...(dfm ? ["dfm.json"] : [])]) record.files[`${name}/${file}`] = sha256(await readFile(join(target, file)));
+        if (dfm?.cam) for (const f of await readdir(target)) if (CAM_FILE.test(f)) record.files[`${name}/${f}`] = sha256(await readFile(join(target, f)));
+        if (structural) await readFile(join(target, "fea.png")).then(b => { record.files[`${name}/fea.png`] = sha256(b); }, () => undefined);
+        store.put("cad-review", record);
+      }));
+      record.receipts.push(...ownReceipts.baseline, ...ownReceipts.candidate);
+      const failedPart = parts.find((p): p is PromiseRejectedResult => p.status === "rejected");
+      if (failedPart) throw failedPart.reason;
+      publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选零件", status: "running" });
+      const diff = await adapters.diff(directory);
+      publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选零件", status: "done", detail: `blocking ${diff.value.blocking_changes}` });
+      const lost = record.baseline!.checks.filter(c => c.passed && !record.candidate!.checks.find(n => n.id === c.id)!.passed).length;
+      if (diff.value.blocking_changes !== lost || diff.value.gate_passed !== (lost === 0)) throw new DomainError("CAD_DIFF_MISMATCH", "Native CAD checks and independent comparison disagree");
+      if (sha256(await readFile(script)) !== scriptHash || canonical(scriptsBefore) !== canonical(await scriptDigests())
+          || canonical(nativeBefore) !== canonical(await adapters.sourceDigests())) {
+        throw new DomainError("SOURCE_CHANGED", "Native verifier changed during CAD production");
       }
-    }
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const native = (file: string) => join(config.repository, "native", file);
-    const family = familyOf(request);
-    const script = native(FAMILY_SCRIPT[family]), lock = native("cadquery-requirements.txt");
-    const structural = request.requirements.structural;
-    const cam = request.requirements.dfm?.cam;
-    if (cam && !camConfigured(config)) throw new DomainError("CAM_NOT_CONFIGURED", "CAM needs the pinned FreeCAD toolchain (npm run setup:cam) or the PAISolver CAM job", 503);
-    const used = [...(request.requirements.dfm ? ["cad_dfm.py", "dfm-shop.json"] : []), ...(cam ? ["cam_part.py", "cam_verify.py", "cam-requirements.txt", ...(camRunner(config) === "batch" ? ["cam_remote.py", "cam_job.py"] : [])] : []), FAMILY_SCRIPT[family], ...(family === "nema17-bracket" ? ["cad_recipe.py"] : []), "cad_checks.py", ...(generated ? ["cad_code_policy.py", "cad_sandbox.py", "cad_generated.py", "cad_bearing.py"].filter(f => f !== FAMILY_SCRIPT[family]) : []),
-      ...(structural ? [FAMILY_FEA[family].script, "fea_core.py"] : [])];
-    const scriptDigests = async () => Object.fromEntries(await Promise.all(used.map(async f => [f.replace(/_/g, "-"), sha256(await readFile(native(f)))])));
-    const adapters = new NativeAdapters(config);
-    const scriptHash = sha256(await readFile(script));
-    const scriptsBefore = await scriptDigests();
-    const nativeBefore = await adapters.sourceDigests();
-    const codeSha256 = generated ? sha256(generated.code) : undefined;
-    record.sourceDigests = { ...nativeBefore, ...scriptsBefore, "cadquery-lock": sha256(await readFile(lock)), "cadquery-python": sha256(await readFile(config.cadquery)),
-      ...(structural ? { "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "ccx": sha256(await readFile(config.ccx!)) } : {}),
-      ...(codeSha256 ? { "generated-code": codeSha256 } : {}) };
-    const remote = Boolean(generated && config.agentcoreSandboxArn);
-    const runtime = generated && !remote ? await sandboxRuntime(config) : undefined;
-    const bwrap = config.bwrap ?? "bwrap";
-    // Reference and candidate are produced concurrently (each its own directory and native processes), like the aero
-    // lane; both always settle before the record moves on, so a failure never races with the other part's writes.
-    const cadquery = config.cadquery;
-    const ownReceipts = { baseline: [] as Receipt[], candidate: [] as Receipt[] };
-    // The baseline is the family's reference design.
-    const reference = family === "pillow-block" ? "pillow-block" : "reference";
-    const parts = await Promise.allSettled(([["baseline", reference], ["candidate", request.variant]] as const).map(async ([name, variant]) => {
-      const target = join(directory, name);
-      // Receipts per part, merged in a fixed order (baseline, candidate) once both settle, so records are deterministic.
-      const own = ownReceipts[name];
-      const part = new Proxy(record, { get: (t, k) => k === "receipts" ? own : Reflect.get(t, k), set: (t, k, v) => k === "receipts" ? false : Reflect.set(t, k, v) });
-      const label = `CadQuery ${name === "baseline" ? "基准零件" : "候选零件"}（${variant}）`;
-      publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: "running", which: name });
-      const input = join(directory, `${name}-input.json`);
-      await writePrivate(input, JSON.stringify({ variant, family, requirements: request.requirements, ...(codeSha256 ? { codeSha256 } : {}),
-        ...(variant === "parametric" ? { parameters: request.parameters } : {}) }));
-      await mkdir(target, { recursive: true, mode: 0o700 });
-      const sandboxed = Boolean(generated && name === "candidate");
-      if (sandboxed && remote) {
-        await buildRemote(config, publish, part, target, generated!, codeSha256!, request.requirements, request.requestId);
-        publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: "done", which: name, detail: "AgentCore microVM" });
-      } else if (sandboxed) await buildGenerated(config, publish, part, directory, runtime!, generated!, codeSha256!, request.requestId);
-      let observed = Promise.resolve();
-      const observe = (line: string) => {
-        if (!line.startsWith("PAI_EVENT ")) return;
-        observed = observed.then(async () => {
-          const parsed = NativeEvent.safeParse((() => { try { return JSON.parse(line.slice(10)); } catch { return undefined; } })());
-          if (!parsed.success || parsed.data.type !== "stage") return;
-          const e = parsed.data;
-          const digest = sha256(await readFile(join(target, e.file)));
-          const stage: SceneStage = { index: e.index, id: e.id, label: e.label, file: e.file, sha256: digest, objects: e.objects };
-          record.stages = { ...record.stages, [name]: [...(record.stages?.[name] ?? []), stage] };
-          store.put("cad-review", record);
-          publish(request.requestId, { kind: "stage", which: name, index: e.index, id: e.id, label: e.label, objects: e.objects,
-            url: `/api/cad/${record.id}/stages/${name}/${e.index}`, sha256: digest });
-        }).catch(() => { /* Presentation events never fail the native review. */ });
-      };
-      if (!(sandboxed && remote)) {
-      const args = sandboxed
-        ? sandboxArgs(config, runtime!, { readOnly: [input, join(directory, "candidate-src")], writable: [target] },
-          [runtime!.python, "-I", "-W", "ignore", join(runtime!.native, "cad_generated.py"), "--input", input, "--source", join(directory, "candidate-src"), "--output", target])
-        : ["-I", "-W", "ignore", script, "--input", input, "--output", target];
-      const r = await command(sandboxed ? bwrap : cadquery, args, config.repository, undefined, 180_000, observe);
-      await observed;
-      await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
-      await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
-      own.push({ adapter: sandboxed ? "cadquery-sandbox-check" : "cadquery-native", command: sandboxed ? ["bwrap", "…", "python", "cad_generated.py"] : ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
-        exitCode: r.exitCode, stdoutSha256: sha256(r.stdout),
-        sourceDigests: sandboxed ? { script: scriptsBefore["cad-generated.py"], checks: scriptsBefore["cad-checks.py"] } : { script: scriptHash, checks: scriptsBefore["cad-checks.py"] } });
-      publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name, detail: `exit ${r.exitCode}` });
-      store.put("cad-review", record);
-      if (r.exitCode !== 0) throw new DomainError("CAD_FAILED", "Native CAD production failed; retain receipts and inspect local artifacts", 422);
-      }
-      const checks = CadChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
-      if (checks.variant !== variant) throw new DomainError("CAD_CONTEXT", "Native CAD variant mismatch");
-      if (canonical(checks.checks.map(c => c.id)) !== canonical(FAMILY_CHECKS[family])) throw new DomainError("CAD_CONTEXT", "Native CAD produced unexpected checks");
-      if (structural) {
-        const fea = await runFea(config, publish, part, request.requestId, name, target, checks, structural, family);
-        checks.checks.push(...fea.checks);
-        const { checks: _measured, ...summary } = fea;
-        record.fea = { ...record.fea, [name]: summary };
-      }
-      record[name] = checks;
-      const dfm = request.requirements.dfm;
-      if (dfm) {
-        publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM：三轴铣削装夹、钻孔与单件成本（${name === "baseline" ? "基准" : "候选"}）`, status: "running", which: name });
-        const r = await command(cadquery, ["-I", "-W", "ignore", native("cad_dfm.py"), "--step", join(target, "part.step"), "--shop", native("dfm-shop.json"),
-          "--requirements", JSON.stringify(dfm), "--output", join(target, "dfm.json")], config.repository, undefined, 180_000);
-        own.push({ adapter: "cadquery-dfm", command: ["python", "cad_dfm.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
-          stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(native("cad_dfm.py"))), shop: sha256(await readFile(native("dfm-shop.json"))) } });
-        publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM（${name === "baseline" ? "基准" : "候选"}）`, status: r.exitCode === 0 ? "done" : "failed", which: name,
-          detail: (() => { try { const d = JSON.parse(r.stdout.trim().split("\n").at(-1)!); return `${d.setups.length} 次装夹（${d.setups.join("、")}）· 估算 ${d.unitCostEur} EUR · 加工 ${d.machiningMinutes} min`; } catch { return `exit ${r.exitCode}`; } })() });
-        if (r.exitCode !== 0) throw new DomainError("DFM_FAILED", "Native DFM analysis failed; retain receipts", 422);
-        const measured = z.object({ schema: z.literal("pai-dfm-1"), checks: z.array(z.object({ id: z.enum(DFM_CHECKS), passed: z.boolean() }).passthrough()).length(DFM_CHECKS.length) }).passthrough()
-          .parse(JSON.parse(await readFile(join(target, "dfm.json"), "utf8")));
-        checks.checks.push(...measured.checks as typeof checks.checks);
-        if (dfm.cam) checks.checks.push(...await runCam(config, publish, part, request.requestId, name, target, dfm.cam) as typeof checks.checks);
-      }
-      const expected = [...FAMILY_CHECKS[family], ...(structural ? FAMILY_FEA_CHECKS[family] : []), ...(dfm ? DFM_CHECKS : []), ...(dfm?.cam ? CAM_CHECKS : [])];
-      await writeFile(join(directory, name === "baseline" ? "baseline.xml" : "current.xml"), checksXml(checks, expected), { mode: 0o600, flag: "wx" });
-      for (const file of [...CAD_FILES, ...(structural ? feaFiles(family) : []), ...(dfm ? ["dfm.json"] : [])]) record.files[`${name}/${file}`] = sha256(await readFile(join(target, file)));
-      if (dfm?.cam) for (const f of await readdir(target)) if (CAM_FILE.test(f)) record.files[`${name}/${f}`] = sha256(await readFile(join(target, f)));
-      if (structural) await readFile(join(target, "fea.png")).then(b => { record.files[`${name}/fea.png`] = sha256(b); }, () => undefined);
-      store.put("cad-review", record);
-    }));
-    record.receipts.push(...ownReceipts.baseline, ...ownReceipts.candidate);
-    const failedPart = parts.find((p): p is PromiseRejectedResult => p.status === "rejected");
-    if (failedPart) throw failedPart.reason;
-    publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选零件", status: "running" });
-    const diff = await adapters.diff(directory);
-    publish(request.requestId, { kind: "step", id: "evalarc", label: "EvalArc 独立对照基准与候选零件", status: "done", detail: `blocking ${diff.value.blocking_changes}` });
-    const lost = record.baseline!.checks.filter(c => c.passed && !record.candidate!.checks.find(n => n.id === c.id)!.passed).length;
-    if (diff.value.blocking_changes !== lost || diff.value.gate_passed !== (lost === 0)) throw new DomainError("CAD_DIFF_MISMATCH", "Native CAD checks and independent comparison disagree");
-    if (sha256(await readFile(script)) !== scriptHash || canonical(scriptsBefore) !== canonical(await scriptDigests())
-        || canonical(nativeBefore) !== canonical(await adapters.sourceDigests())) {
-      throw new DomainError("SOURCE_CHANGED", "Native verifier changed during CAD production");
-    }
-    record.diff = diff.value; record.receipts.push(diff.receipt);
-    // The candidate is judged against the frozen requirements (as in every other lane); the baseline only anchors the
-    // EvalArc comparison. A reference that misses a tightened requirement must not reject a candidate that meets it.
-    record.verdict = record.candidate!.checks.every(c => c.passed) ? "accepted-cad-part" : "rejected";
-    record.state = "completed";
-  } catch (e) { record.state = "failed"; record.error = e instanceof DomainError ? `${e.code}: ${e.message}` : "CAD_FAILED: check native configuration and retained local receipts"; }
-  record.finishedAt = new Date().toISOString(); store.put("cad-review", record);
-  publish(request.requestId, { kind: "done", state: record.state, recordId: record.id, verdict: record.verdict, detail: record.error });
-  return record;
+      record.diff = diff.value; record.receipts.push(diff.receipt);
+      // The candidate is judged against the frozen requirements (as in every other lane); the baseline only anchors the
+      // EvalArc comparison. A reference that misses a tightened requirement must not reject a candidate that meets it.
+      return record.candidate!.checks.every(c => c.passed) ? "accepted-cad-part" : "rejected";
+    } });
 }
 
 /** Native structural analysis of one built part: Gmsh mesh → CalculiX → measured deflection and stress. */

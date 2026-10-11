@@ -83,7 +83,7 @@ export async function reviewAero(store: Store, config: Config, project: Project,
     scope: "steady-rans-cfd", physicalValidation: false };
   const directory = join(config.state, "aero", record.id);
   return nativeRun({ store, live, project, kind: "aero-review", evidenceKind: "aero-body", request, record, failure: "CFD_FAILED",
-    recheck: { label: "Aerodynamics recheck", sameRequirements: original => canonical(original.request.requirements) === canonical(request.requirements) },
+    recheck: { message: "Aerodynamics recheck must bind the same feedback and unchanged requirements", sameRequirements: original => canonical(original.request.requirements) === canonical(request.requirements) },
     work: async (record, publish) => {
       await mkdir(directory, { recursive: true, mode: 0o700 });
       const native = (f: string) => join(config.repository, "native", f);
