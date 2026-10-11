@@ -10,7 +10,9 @@ import { canonical, DomainError, sha256 } from "./domain.js";
 import { nativeRun } from "./kernel/native-run.js";
 import { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
-import { NativeEvent, type SceneStage } from "./scenes.js";
+import { NativeEvent, type SceneStage } from "./kernel/native-events.js";
+import { CAD_FAMILIES, familyOf, PILLOW_PRESETS, type CadFamily } from "./part-family.js";
+export { CAD_FAMILIES, familyOf, PILLOW_PRESETS, type CadFamily } from "./part-family.js";
 import { ISOLATION, sandboxArgs, sandboxRuntime, sandboxStatus, type SandboxRuntime } from "./sandbox.js";
 import { invokeRuntime } from "./agentcore.js";
 
@@ -25,8 +27,6 @@ export const GEOMETRY_CHECKS = ["solid-valid", "nema17-interface", "motor-interf
  * Part families. Each has its own trusted recipe and B-Rep interface checks (native script); mass, envelope, wall,
  * edge distance, DFM and CAM are shared. FEA load cases, sweeps, optimisation and generated code exist for the bracket.
  */
-export const CAD_FAMILIES = ["nema17-bracket", "pillow-block"] as const;
-export type CadFamily = (typeof CAD_FAMILIES)[number];
 export const FAMILY_CHECKS: Record<CadFamily, readonly string[]> = {
   "nema17-bracket": GEOMETRY_CHECKS,
   "pillow-block": ["solid-valid", "bearing-seat", "shoulder", "min-wall", "hole-edge-distance", "mass", "envelope"],
@@ -54,7 +54,6 @@ export type DfmRequirements = z.infer<typeof DfmRequirements>;
 export const DEFAULT_DFM: DfmRequirements = { maxSetups: 2, maxUnitCostEur: 25 };
 export const CAD_PRESETS = ["reference", "lightweight", "undersize-bore", "compact"] as const;
 /** Pillow-block presets (native/cad_bearing.py PRESETS): 6202 housing reference and three single-fault variants. */
-export const PILLOW_PRESETS = ["pillow-block", "pillow-block-light", "pillow-block-compact", "pillow-block-tight"] as const;
 /** "generated": the candidate solid comes from CadQuery code (AI, external agent or maintainer) run in the OS sandbox. */
 export const CAD_VARIANTS = [...CAD_PRESETS, ...PILLOW_PRESETS, "parametric", "generated"] as const;
 /** Bounded explicit parameters of the trusted recipe (variant "parametric", e.g. a chosen sweep point); mirrors native/cad_recipe.py BOUNDS. */
@@ -111,8 +110,6 @@ export const FAMILY_DEFAULTS: Record<CadFamily, CadRequirements> = {
   // 6202 housing in 6061: ≥ 5 mm around the bearing seat; footprint ≤ 120 × 40, height ≤ 60 mm.
   "pillow-block": { maxMassG: 250, minWallMm: 5, edgeDistanceFactor: 1.5, requireNoInterference: true, maxEnvelopeMm: [120, 40, 60] },
 };
-export const familyOf = (r: { variant: string; family?: CadFamily }): CadFamily =>
-  (PILLOW_PRESETS as readonly string[]).includes(r.variant) ? "pillow-block" : r.family ?? "nema17-bracket";
 export const CadRequest = z.object({
   requestId: Id, projectRevision: z.number().int().positive(), variant: z.enum(CAD_VARIANTS),
   requirements: CadRequirements, feedbackId: Id.optional(), source: CadSource.optional(), parameters: z.union([CadParameters, PillowParameters]).optional(),

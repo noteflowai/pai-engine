@@ -1,3 +1,4 @@
+import { EvidenceKindSchema } from "./ontology/evidence.js";
 import Fastify, { type FastifyReply } from "fastify";
 import type { RecordKind } from "./ontology/kinds.js";
 import staticPlugin from "@fastify/static";
@@ -190,7 +191,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   app.get("/api/projects/:id/ai-track-record", async request => trackRecord(store, workbench.project(paramId(request.params)).id));
   app.get("/api/projects/:id/versions", async request => workbench.versions(paramId(request.params)));
   app.get("/api/projects/:id/admission", async request => {
-    const q = z.object({ kind: z.enum(["robot-review", "blender-scene", "cad-part", "factory-twin"]), runId: Id }).strict().parse(request.query);
+    const q = z.object({ kind: EvidenceKindSchema, runId: Id }).strict().parse(request.query);
     const p = workbench.project(paramId(request.params));
     return admission(store, p, lifecycle(p), q.kind, q.runId);
   });

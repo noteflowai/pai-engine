@@ -16,7 +16,7 @@ import { canonical, DomainError, sha256 } from "./domain.js";
 import { nativeRun } from "./kernel/native-run.js";
 import type { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
-import { NativeEvent, type SceneStage } from "./scenes.js";
+import { NativeEvent, type SceneStage } from "./kernel/native-events.js";
 
 export const AERO_CHECKS = ["drag-coefficient", "grid-convergence", "iterative-convergence", "mesh-quality"] as const;
 export const AERO_FILES = ["checks.json", "cfd.json", "body.step", "body.stl", "aero.glb", "forces-3.dat", "forces-4.dat", "checkMesh-3.log", "checkMesh-4.log"] as const;

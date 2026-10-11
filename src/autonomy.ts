@@ -18,17 +18,13 @@ import { Id, type Project } from "./contracts.js";
 import { DomainError } from "./domain.js";
 import type { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
+import { AUTONOMOUS_LANES } from "./lanes.js";
 import { confirmPlan, preflightPlan, type AssistantPlan } from "./assistant.js";
-import { precheckCad, reviewCad } from "./cad.js";
-import { optimizeCad } from "./optimize.js";
-import { reviewScene } from "./scenes.js";
-import { reviewAero } from "./aero.js";
 
-/** Native lanes a grant may cover (each one only measures; none changes requirements or decides releases). */
-export const AUTONOMOUS_TOOLS = ["cad-review", "cad-code", "cad-optimize", "robot-cell", "plant-layout", "aero-body"] as const;
+/** Native lanes a grant may cover: exactly the autonomous lanes in the registry (src/lanes.ts). */
+export const AUTONOMOUS_TOOLS = Object.keys(AUTONOMOUS_LANES) as [keyof typeof AUTONOMOUS_LANES, ...(keyof typeof AUTONOMOUS_LANES)[]];
 export type AutonomousTool = (typeof AUTONOMOUS_TOOLS)[number];
-const KIND: Record<AutonomousTool, RecordKind> = { "cad-review": "cad-review", "cad-code": "cad-review", "cad-optimize": "cad-optimize",
-  "robot-cell": "scene-review", "plant-layout": "scene-review", "aero-body": "aero-review" };
+const KIND = (tool: AutonomousTool): RecordKind => AUTONOMOUS_LANES[tool].recordKind;
 export const CreateGrant = z.object({
   tools: z.array(z.enum(AUTONOMOUS_TOOLS)).min(1).max(AUTONOMOUS_TOOLS.length),
   maxRuns: z.number().int().min(1).max(20), hours: z.number().min(0.25).max(72).default(8),
@@ -87,13 +83,10 @@ export async function runUnderGrant(deps: Deps, planId: string, input: unknown, 
   const body = { ...step.payload, projectRevision: project.revision, requestId };
   // Reserve the quota first: a concurrent second call sees the reservation and stops at the revision check.
   const reserved: AutonomyGrant = { ...grant, revision: grant.revision + 1,
-    runs: [...grant.runs, { planId, stepId: step.id, tool, recordKind: KIND[tool], recordId: "pending", at: new Date().toISOString(), by }] };
+    runs: [...grant.runs, { planId, stepId: step.id, tool, recordKind: KIND(tool), recordId: "pending", at: new Date().toISOString(), by }] };
   store.put("autonomy-grant", reserved, grant.revision);
   const { config, live } = deps;
-  const operation = tool === "cad-review" || tool === "cad-code" ? precheckCad(store, config, body).then(() => reviewCad(store, config, project, body, live))
-    : tool === "cad-optimize" ? optimizeCad(store, config, project, body, live)
-    : tool === "aero-body" ? reviewAero(store, config, project, body, live)
-    : reviewScene(store, config, project, body, live);
+  const operation = AUTONOMOUS_LANES[tool].start(store, config, project, body, live);
   // Every native service claims its request before its first await; the record exists after one tick.
   const release = () => {  // nothing started: give the reserved run back
     const latest = store.get<AutonomyGrant>("autonomy-grant", grant.id)!;
@@ -119,8 +112,8 @@ export async function runUnderGrant(deps: Deps, planId: string, input: unknown, 
   const latest = store.get<AutonomyGrant>("autonomy-grant", grant.id)!;
   const bound: AutonomyGrant = { ...latest, revision: latest.revision + 1, runs: latest.runs.map(r => r.planId === planId && r.stepId === step.id ? { ...r, recordId } : r) };
   store.put("autonomy-grant", bound, latest.revision);
-  const confirmed = confirmPlan(store, planId, { planId: step.id, recordKind: KIND[tool], recordId, grantId: grant.id });
+  const confirmed = confirmPlan(store, planId, { planId: step.id, recordKind: KIND(tool), recordId, grantId: grant.id });
   void confirmed;
-  const record = store.get<{ state: string }>(KIND[tool], recordId);
-  return { recordKind: KIND[tool], recordId, state: record?.state ?? "running", grant: { id: grant.id, runsLeft: reserved.maxRuns - reserved.runs.length } };
+  const record = store.get<{ state: string }>(KIND(tool), recordId);
+  return { recordKind: KIND(tool), recordId, state: record?.state ?? "running", grant: { id: grant.id, runsLeft: reserved.maxRuns - reserved.runs.length } };
 }

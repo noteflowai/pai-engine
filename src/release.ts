@@ -1,3 +1,5 @@
+import { EVIDENCE_RECORD_KIND } from "./ontology/evidence.js";
+import { EvidenceKindSchema } from "./ontology/evidence.js";
 import { randomUUID } from "node:crypto";
 import type { RecordKind } from "./ontology/kinds.js";
 import { z } from "zod";
@@ -16,7 +18,7 @@ import type { Lifecycle, EvidenceKind } from "./lifecycle.js";
 export type Maturity = "in-review" | "released" | "rejected" | "superseded";
 export const ReleaseRequest = z.object({
   requestId: Id, projectRevision: z.number().int().positive(),
-  evidenceKind: z.enum(["robot-review", "blender-scene", "cad-part", "factory-twin", "aero-body"]), runId: Id,
+  evidenceKind: EvidenceKindSchema, runId: Id,
   title: z.string().trim().min(2).max(160), notes: z.string().trim().max(2000).default(""),
 }).strict();
 export const ReleaseDecision = z.object({
@@ -45,7 +47,8 @@ const SCOPE: Record<EvidenceKind, string> = {
   "aero-body": "稳态 RANS（k-ω SST）两级网格：设计比较用的阻力系数，不是风洞实测",
 };
 type Run = { id: string; projectId: string; projectRevision: number; state: string; verdict?: string; decision?: { verdict: string } };
-export const KIND_STORE: Record<EvidenceKind, RecordKind> = { "robot-review": "review", "blender-scene": "scene-review", "cad-part": "cad-review", "factory-twin": "factory-review", "aero-body": "aero-review" };
+/** Store kind of each evidence kind (single table in the ontology). */
+export const KIND_STORE: Record<EvidenceKind, RecordKind> = EVIDENCE_RECORD_KIND;
 
 export function admission(store: Store, project: Project, lifecycle: Lifecycle, kind: EvidenceKind, runId: string): AdmissionCheck[] {
   const run = store.get<Run>(KIND_STORE[kind], runId);

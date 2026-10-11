@@ -1034,7 +1034,8 @@ test("site admission artifact: CP-SAT benchmark, release, sample workflow, peak 
   await expect(page.getByText("执行顺序 schedule → verify → gate → controller")).toBeVisible();
   await advance(page, ["保存流程版本"]);
   await page.getByLabel("合成实例").selectOption("peak");
-  await advance(page, ["用合成实例运行"]);
+  // CP-SAT has a deterministic budget, so its wall time grows with host load; allow its own wall-time cap (2 × 60 s).
+  await advance(page, ["用合成实例运行"], 180_000);
   const run = page.locator("details.run-detail").first();
   await expect(run.getByText("待人工确认")).toBeVisible({ timeout: 120_000 });
   await expect(run.getByText(/入场 \d+ 辆 · 优先级分 \d+/)).toBeVisible();
