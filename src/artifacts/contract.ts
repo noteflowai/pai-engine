@@ -7,6 +7,7 @@
  * Kinds are plugins (`ArtifactAdapter`): adding an algorithm or a model means registering one adapter; the registry
  * and the workflow engine never branch on a specific artifact. See docs/adr/0001-artifacts-and-workflows.md.
  */
+import type { EngineRuntime } from "../kernel/engine-runtime.js";
 import { z } from "zod";
 import type { Config } from "../config.js";
 
@@ -65,7 +66,7 @@ export interface OperationResult {
   status: string;
   error?: string;
   usage: { cpuSeconds: number | null; maxRssKb: number | null; wallSeconds: number; storageBytes: number };
-  receipts: { command: string[]; exitCode: number | null; stdoutSha256: string; seconds: number }[];
+  receipts: { command: string[]; exitCode: number | null; stdoutSha256: string; seconds: number; runtime?: EngineRuntime }[];
 }
 export interface RunContext { config: Config; directory: string; files: Record<string, Buffer>; manifest: ArtifactManifest }
 

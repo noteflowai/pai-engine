@@ -92,6 +92,37 @@ if ! command -v bwrap >/dev/null; then DEBIAN_FRONTEND=noninteractive apt-get in
 if [ -d /sys/kernel/security/apparmor ] && [ -f "$RELEASE/infra/apparmor-bwrap" ]; then
   install -m 0644 "$RELEASE/infra/apparmor-bwrap" /etc/apparmor.d/pai-bwrap && apparmor_parser -r /etc/apparmor.d/pai-bwrap
 fi
+# Engine containers (ADR 0004; opt-in PAI_ENGINE_CONTAINERS=<engines>, images pinned by digest in PAI_ENGINE_IMAGES).
+# Rootless podman as the service user with a single uid mapping (no setuid helpers, so the service keeps
+# NoNewPrivileges); storage on the data volume; every run is a no-network, read-only, no-capability container.
+if [ -n "${PAI_ENGINE_CONTAINERS:-}" ] && [ -n "${PAI_ENGINE_IMAGES:-}" ]; then
+  dpkg -s podman crun conmon catatonit >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq --no-install-recommends podman crun conmon catatonit >/dev/null; }
+  CT=/var/lib/pai/data/containers
+  install -d -o pai -g pai -m 0700 "$CT" "$CT/storage" "$CT/run" "$CT/config"
+  PODMAN="podman --root $CT/storage --runroot $CT/run --storage-driver overlay --storage-opt overlay.ignore_chown_errors=true --cgroup-manager cgroupfs --events-backend none --log-level error"
+  ENVS="HOME=$CT XDG_CONFIG_HOME=$CT/config XDG_RUNTIME_DIR=$CT/run XDG_DATA_HOME=$CT"
+  BOTO=$(for p in /var/lib/pai/data/state/tools/*/bin/python; do "$p" -c "import boto3" 2>/dev/null && echo "$p" && break; done)
+  [ -n "$BOTO" ] || { echo "No Python with boto3 for the ECR login" >&2; exit 1; }
+  REGISTRY=$(printf '%s' "$PAI_ENGINE_IMAGES" | python3 -c "import json,sys;print(sorted({v.split('/')[0] for v in json.load(sys.stdin).values()})[0])")
+  # The ECR password goes through a pipe only (never a file or argv).
+  "$BOTO" -c "import boto3,base64;a=boto3.client('ecr',region_name='$(printf '%s' "$REGISTRY" | cut -d. -f4)').get_authorization_token()['authorizationData'][0];print(base64.b64decode(a['authorizationToken']).decode().split(':',1)[1])" \
+    | runuser -u pai -- env $ENVS $PODMAN login --username AWS --password-stdin "$REGISTRY" >/dev/null
+  for ref in $(printf '%s' "$PAI_ENGINE_IMAGES" | python3 -c "import json,sys;print(' '.join(json.load(sys.stdin).values()))"); do
+    case "$ref" in *@sha256:*) ;; *) echo "Engine image not pinned by digest: $ref" >&2; exit 1 ;; esac
+    runuser -u pai -- env $ENVS $PODMAN image exists "$ref" || runuser -u pai -- env $ENVS $PODMAN pull -q "$ref" >/dev/null
+  done
+  runuser -u pai -- env $ENVS $PODMAN logout "$REGISTRY" >/dev/null 2>&1 || true
+  # Images no longer referenced by this release are removed (by digest, so nothing in use is touched).
+  for id in $(runuser -u pai -- env $ENVS $PODMAN images -q --no-trunc | sort -u); do
+    used=$(runuser -u pai -- env $ENVS $PODMAN image inspect --format '{{range .RepoDigests}}{{.}} {{end}}' "$id" | tr ' ' '\n' | grep -cxF -f <(printf '%s' "$PAI_ENGINE_IMAGES" | python3 -c "import json,sys;print('\n'.join(json.load(sys.stdin).values()))") || true)
+    [ "$used" = "0" ] && runuser -u pai -- env $ENVS $PODMAN rmi -f "$id" >/dev/null 2>&1 || true
+  done
+  GPU=0; [ -s /etc/cdi/nvidia.yaml ] && GPU=1
+  sed -i '/^PAI_ENGINE_CONTAINERS=/d;/^PAI_ENGINE_IMAGES=/d;/^PAI_ENGINE_TOOLS_DIR=/d;/^PAI_CONTAINERS_ROOT=/d;/^PAI_ENGINE_CONTAINER_CLI=/d;/^PAI_ENGINE_GPU=/d' /etc/pai/runtime.env
+  case "$PAI_ENGINE_IMAGES" in *"'"*) echo "PAI_ENGINE_IMAGES must not contain single quotes" >&2; exit 1 ;; esac
+  printf "PAI_ENGINE_CONTAINERS=%s\nPAI_ENGINE_IMAGES='%s'\nPAI_ENGINE_TOOLS_DIR=/var/lib/pai/data/state/tools\nPAI_CONTAINERS_ROOT=%s\nPAI_ENGINE_CONTAINER_CLI=podman\nPAI_ENGINE_GPU=%s\n" \
+    "$PAI_ENGINE_CONTAINERS" "$PAI_ENGINE_IMAGES" "$CT" "$GPU" >> /etc/pai/runtime.env
+fi
 # AI engine (pinned Kiro CLI + bounded executor); skipped only if the stack predates the AI resources.
 if [ -n "${PAI_EXECUTOR_KEY:-}" ] && [ -n "${PAI_AI_KEYS_ARN:-}" ]; then
   bash "$RELEASE/infra/install_ai.sh"

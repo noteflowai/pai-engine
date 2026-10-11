@@ -128,7 +128,7 @@ export async function reviewAero(store: Store, config: Config, project: Project,
           }).catch(() => { /* presentation only */ });
         };
         const args = ["-I", native("cfd_review.py"), "--input", inputFile, "--output", target];
-        const r = await runEngine(config.repository, { engine: "physics", program: config.physicsPython!, args, cwd: config.repository, mounts: { read: [inputFile], write: [target] },
+        const r = await runEngine(config, { engine: "physics", program: config.physicsPython!, args, cwd: config.repository, mounts: { read: [inputFile], write: [target] },
           timeoutMs: 7_200_000, onLine: observe, network: config.solverBatch?.cfdJobDefinition ? "aws" : "none" });
         await observed;
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);

@@ -108,7 +108,7 @@ export async function sweepCad(store: Store, config: Config, project: Project, i
     };
     const args = ["-I", "-W", "ignore", native("cad_sweep.py"), "--input", input, "--output", directory];
     // ~6 s per point measured on t3.medium-class CPUs; bounded wall time with headroom.
-    const r = await runEngine(config.repository, { engine: "cad", program: config.cadquery, args, cwd: config.repository, mounts: { read: [input], write: [directory] },
+    const r = await runEngine(config, { engine: "cad", program: config.cadquery, args, cwd: config.repository, mounts: { read: [input], write: [directory] },
       timeoutMs: Math.max(120_000, total * 20_000), onLine: observe });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cadquery-sweep", command: ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,

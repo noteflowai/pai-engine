@@ -51,7 +51,7 @@ const issues = (r: { success: boolean; error?: z.ZodError }) => r.success ? [] :
 
 
 async function python(config: Config, args: string[], cwd: string, timeoutMs: number) {
-  const r = await runEngine(config.repository, { engine: "logistics", program: config.logisticsPython!, args: ["-I", ...args], cwd: cwd, mounts: { write: [cwd] }, timeoutMs: timeoutMs });
+  const r = await runEngine(config, { engine: "logistics", program: config.logisticsPython!, args: ["-I", ...args], cwd: cwd, mounts: { write: [cwd] }, timeoutMs: timeoutMs });
   return r;
 }
 
@@ -104,7 +104,7 @@ export const logisticsAdapter: ArtifactAdapter = {
       orders: z.number().int().min(1).max(LIMITS.maxOrders).default(40), vehicles: z.number().int().min(1).max(LIMITS.maxVehicles).default(8) }).strict(),
     async generate(ctx, params) {
       const code = await materialise(ctx), f = join(ctx.directory, "sample.json");
-      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(params.seed), "--orders", String(params.orders),
+      const r = await runEngine(ctx.config, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(params.seed), "--orders", String(params.orders),
         "--vehicles", String(params.vehicles), "--scenario", String(params.scenario), "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("SAMPLE_FAILED", "generator failed", 500);
       return JSON.parse(await readFile(f, "utf8"));
@@ -114,7 +114,7 @@ export const logisticsAdapter: ArtifactAdapter = {
   async runtimeReady(config, manifest) {
     if (!config.logisticsPython) return { ready: false, reason: "PAI_LOGISTICS_PYTHON is not set (python3 tools/setup_logistics.py)" };
     const want = manifest.dependencies.find(d => d.name === "ortools")?.version;
-    const r = await runEngine(config.repository, { engine: "logistics", program: config.logisticsPython, args: ["-I", "-c", "import ortools; print(ortools.__version__)"], cwd: config.state, mounts: { write: [] }, timeoutMs: 30_000 }).catch(() => undefined);
+    const r = await runEngine(config, { engine: "logistics", program: config.logisticsPython, args: ["-I", "-c", "import ortools; print(ortools.__version__)"], cwd: config.state, mounts: { write: [] }, timeoutMs: 30_000 }).catch(() => undefined);
     const have = r?.exitCode === 0 ? r.stdout.trim() : undefined;
     return have === want ? { ready: true } : { ready: false, reason: `runtime OR-Tools ${have ?? "unavailable"} differs from the artifact's pin ${want}` };
   },
@@ -130,7 +130,7 @@ export const logisticsAdapter: ArtifactAdapter = {
       const args = [join(code, "logistics_solve.py"), "--problem", problemFile, "--output", out,
         ...(p ? ["--strategy", p.strategy, "--time-limit", String(p.timeLimitSeconds), ...(p.allowUnassigned ? ["--allow-unassigned"] : [])] : ["--baseline"])];
       const r = await python(ctx.config, args, ctx.directory, ((p?.timeLimitSeconds ?? 10) + 60) * 1000);
-      const receipts = [{ command: ["python", "logistics_solve.py", ...args.slice(1).filter(a => !a.startsWith("/"))], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000 }];
+      const receipts = [{ command: ["python", "logistics_solve.py", ...args.slice(1).filter(a => !a.startsWith("/"))], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000, runtime: r.runtime }];
       if (r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: `solver exited ${r.exitCode}`, receipts,
         usage: { cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: 0 } };
       const text = await readFile(out, "utf8"), plan = JSON.parse(text);
@@ -141,8 +141,8 @@ export const logisticsAdapter: ArtifactAdapter = {
       const planFile = join(ctx.directory, "plan-in.json"), out = join(ctx.directory, "verification.json");
       await writePrivate(planFile, JSON.stringify(inputs.plan));
       // The verifier is standard-library only and runs with the system interpreter, not the solver's environment.
-      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_verify.py"), "--problem", problemFile, "--plan", planFile, "--output", out], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 120_000 });
-      const receipts = [{ command: ["python3", "logistics_verify.py"], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000 }];
+      const r = await runEngine(ctx.config, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_verify.py"), "--problem", problemFile, "--plan", planFile, "--output", out], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 120_000 });
+      const receipts = [{ command: ["python3", "logistics_verify.py"], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000, runtime: r.runtime }];
       if (r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: `verifier exited ${r.exitCode}`, receipts,
         usage: { cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: 0 } };
       const text = await readFile(out, "utf8"), verification = JSON.parse(text);
@@ -161,7 +161,7 @@ export const logisticsAdapter: ArtifactAdapter = {
     const code = await materialise(ctx);
     const gen = async (scenario: string, seed = 7) => {
       const f = join(ctx.directory, `bench-${scenario}-${seed}.json`);
-      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(seed), "--orders", "24", "--vehicles", "5", "--scenario", scenario, "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
+      const r = await runEngine(ctx.config, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(seed), "--orders", "24", "--vehicles", "5", "--scenario", scenario, "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("BENCHMARK", `generator failed for ${scenario}`, 500);
       return JSON.parse(await readFile(f, "utf8"));
     };
