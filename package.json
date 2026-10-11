@@ -30,6 +30,7 @@
     "test:package": "node --env-file-if-exists=.state/demo.env --import tsx scripts/release-package-e2e.ts",
     "test:artifacts": "node --env-file-if-exists=.state/demo.env --import tsx scripts/artifact-e2e.ts",
     "test:yard": "node --env-file-if-exists=.state/demo.env --import tsx scripts/yard-e2e.ts",
+    "demo:yard-twin": "node --env-file-if-exists=.state/demo.env scripts/record-yard-twin.mjs",
     "verify:package": "node --import tsx scripts/verify-package.ts",
     "setup:physics": "python3.12 tools/setup_physics.py",
     "setup:logistics": "python3 tools/setup_logistics.py",

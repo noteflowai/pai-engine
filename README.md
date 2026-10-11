@@ -72,11 +72,29 @@ flowchart LR
 
 ## 演示
 
-五段真实录制的成片：机器人工作单元提速（A）、AI + Blender 产线（B）、生成式 CAD（C）、从设计到车间（D）、AI 设计轴承座（E）。完整讲解、回执与下载见 [docs/DEMOS.md](docs/DEMOS.md)。
+六段真实录制的成片：机器人工作单元提速（A）、AI + Blender 产线（B）、生成式 CAD（C）、从设计到车间（D）、AI 设计轴承座（E）、场外物流孪生（F，见下）。完整讲解、回执与下载见 [docs/DEMOS.md](docs/DEMOS.md)。
 
 | A · 机器人工作单元 | B · 产线布局 | D · 设计到车间 | E · AI 设计，求解器裁决 |
 |---|---|---|---|
 | [![A](docs/media/physics-demo.gif)](docs/media/physics-demo.mp4) | [![B](docs/media/factory-demo.gif)](docs/media/factory-demo.mp4) | [![D](docs/media/cam-demo.gif)](docs/media/cam-demo.mp4) | [![E](docs/media/ai-demo.gif)](docs/media/ai-demo.mp4) |
+
+### 场外物流孪生：传感器触发的实时决策
+
+[![场外物流孪生：同一天、同样的扰动，先到先服务与 PAI Engine CP-SAT 并排运行](docs/media/yard-twin.gif)](docs/media/yard-twin.mp4)
+
+场地、门岗、堆场车位、月台、作业班组、车辆与货物、传感器（门岗车牌识别、月台门磁、堆场占用）都是 PAI 本体里的对象。孪生（`native/yard_twin.py`）按分钟推进同一个合成工作日，并注入扰动：3 辆车晚到（门岗摄像头在时间窗开始时没看到车牌），D4 月台停用 30 分钟（门磁报警）。左边按先到先服务处理；右边由场地准入制品（OR-Tools CP-SAT）在开班时排一次，之后每次传感器报出新情况就重排：已进场的车保持不动，其余车重新决定。每一份被采用的方案都先经独立核验器检查。动画每一帧都来自这次运行记录下的方案，没有手工摆的画面。
+
+| 同一天（24 车，3 辆晚到，D4 停用 30 min） | 先到先服务 | PAI Engine · CP-SAT |
+|---|---|---|
+| 入场车辆 | 16 | **24** |
+| 被拒入场 | 8 | **0** |
+| 优先级分 | 24 | **38** |
+| 冷链作业 | 4 | **5** |
+| 平均在场时间 | 102.8 min | **66.0 min** |
+| 传感器触发重排 | — | 4 次 |
+| 最终方案独立核验 | 通过 | 通过 |
+
+CP-SAT 的总等待时间更长（545 vs 432 min），因为它多接了 8 辆车，而先到先服务直接拒绝了它们。复现：`npm run demo:yard-twin`（回执 [yard-twin.json](docs/evidence/yard-twin.json)），`npm run test:yard` 每次都在 CI 里重跑这个孪生。
 
 ### 场外物流决策：场地准入与排队调度
 

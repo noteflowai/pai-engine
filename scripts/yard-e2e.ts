@@ -51,9 +51,19 @@ try {
   assert.ok(cp.totals.priorityAdmitted >= fcfs.totals.priorityAdmitted);
 
   await writeFile(join(base.repository, "docs/media/yard-demo.svg"), figure(problem, cp, fcfs));
+  // Digital twin: the disturbed day (late trucks from the gate camera, a dock outage from its door sensor) under both
+  // policies, CP-SAT re-planning on each sensor event; both adopted schedules must pass the verifier on the real day.
+  const twinDir = join(state, "twin"); await mkdir(twinDir, { recursive: true });
+  execFileSync("python3", ["-I", "native/yard_generate.py", "--scenario", "normal", "--seed", "7", "--output", join(twinDir, "p.json")], { cwd: base.repository });
+  execFileSync(config.logisticsPython, ["native/yard_twin.py", "--problem", join(twinDir, "p.json"), "--output", join(twinDir, "t.json"), "--budget", "6"], { cwd: base.repository, timeout: 900_000 });
+  const twin = JSON.parse(await readFile(join(twinDir, "t.json"), "utf8")) as { policies: Record<string, { kpi: { admitted: number; priorityAdmitted: number }; verification: string; replans: unknown[] }> };
+  for (const [name, pol] of Object.entries(twin.policies)) assert.equal(pol.verification, "valid-schedule", `${name} twin schedule`);
+  assert.ok(twin.policies["cp-sat"].kpi.priorityAdmitted >= twin.policies.fcfs.kpi.priorityAdmitted);
+  assert.ok(twin.policies["cp-sat"].replans.length >= 2, "sensor events trigger re-planning");
   const evidence = { schema: "pai-yard-e2e-1", checkedAt: new Date().toISOString(), result: "passed", synthetic: true,
     artifact: { id: REF, digest: validated.digest, benchmark: validated.validation.evidence },
     run: { id: done.id, state: done.state, verify: waiting.nodes.verify.status, usage: done.nodes.schedule.usage?.native },
+    twin: Object.fromEntries(Object.entries(twin.policies).map(([k, v]) => [k, { ...v.kpi, verification: v.verification, replans: v.replans.length }])),
     peak: { trucks: problem.trucks.length, cpSat: { ...cp.totals, status: cp.status, solver: cp.solver }, firstComeFirstServed: { ...fcfs.totals, status: fcfs.status } } };
   await mkdir(join(base.state, "evidence"), { recursive: true });
   await writeFile(join(base.state, "evidence", "yard-e2e.json"), JSON.stringify(evidence, null, 2) + "\n");

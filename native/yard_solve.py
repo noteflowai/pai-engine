@@ -29,7 +29,9 @@ def compatible(truck, dock):
     return truck["cargo"] in dock["cargo"] and truck["lengthM"] <= dock["maxLengthM"]
 
 
-def solve(p, time_limit, strategy):
+def solve(p, time_limit, strategy, fixed=None):
+    """`fixed`: truck id -> row of a truck already on site; it keeps its exact entry, dock and times (re-planning)."""
+    fixed = fixed or {}
     from ortools.sat.python import cp_model
     H = p["horizonMin"]
     m = cp_model.CpModel()
@@ -61,6 +63,14 @@ def solve(p, time_limit, strategy):
             options.append((k, b, s, iv))
             crew_iv.setdefault(i, []).append(iv)
         handles[i] = options
+        if i in fixed:
+            f = fixed[i]
+            m.Add(a == 1); m.Add(e == f["entry"]); m.Add(d == f["departure"])
+            for k, b, st, _ in options:
+                if docks[k]["id"] == f["dock"]:
+                    m.Add(b == 1); m.Add(st == f["handleStart"])
+                else:
+                    m.Add(b == 0)
         m.Add(sum(b for _, b, _, _ in options) == 1).OnlyEnforceIf(a)
         m.Add(sum(b for _, b, _, _ in options) == 0).OnlyEnforceIf(a.Not())
         if not options:

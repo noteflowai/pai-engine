@@ -1,0 +1,106 @@
+{
+ "schema": "pai-yard-twin-evidence-1",
+ "recordedAt": "2026-10-11T05:18:14.055Z",
+ "synthetic": true,
+ "disturbances": {
+  "late": {
+   "T04": 30,
+   "T08": 20,
+   "T10": 20
+  },
+  "dockDown": {
+   "dock": "D4",
+   "from": 47,
+   "to": 77
+  }
+ },
+ "policies": {
+  "fcfs": {
+   "kpi": {
+    "admitted": 16,
+    "turnedAway": 8,
+    "priorityAdmitted": 24,
+    "reeferAdmitted": 4,
+    "waitingMin": 432,
+    "avgTurnaroundMin": 102.8,
+    "dockUtilisation": 0.241
+   },
+   "verification": "valid-schedule",
+   "replans": [],
+   "events": []
+  },
+  "cp-sat": {
+   "kpi": {
+    "admitted": 24,
+    "turnedAway": 0,
+    "priorityAdmitted": 38,
+    "reeferAdmitted": 5,
+    "waitingMin": 545,
+    "avgTurnaroundMin": 66,
+    "dockUtilisation": 0.31
+   },
+   "verification": "valid-schedule",
+   "replans": [
+    {
+     "at": 0,
+     "reason": "shift start",
+     "admitted": 23
+    },
+    {
+     "at": 47,
+     "reason": "sensor: dock-down",
+     "admitted": 23,
+     "redecided": 24
+    },
+    {
+     "at": 56,
+     "reason": "sensor: dock-down, late",
+     "admitted": 23,
+     "redecided": 24
+    },
+    {
+     "at": 107,
+     "reason": "sensor: dock-down, late",
+     "admitted": 24,
+     "redecided": 24
+    },
+    {
+     "at": 199,
+     "reason": "sensor: dock-down, late",
+     "admitted": 24,
+     "redecided": 24
+    }
+   ],
+   "events": [
+    {
+     "at": 47,
+     "sensor": "door-D4",
+     "kind": "dock-down",
+     "dock": "D4",
+     "detail": "D4 停用至 77 min"
+    },
+    {
+     "at": 56,
+     "sensor": "gate-anpr",
+     "kind": "late",
+     "truck": "T04",
+     "detail": "晚到 30 min"
+    },
+    {
+     "at": 107,
+     "sensor": "gate-anpr",
+     "kind": "late",
+     "truck": "T10",
+     "detail": "晚到 20 min"
+    },
+    {
+     "at": 199,
+     "sensor": "gate-anpr",
+     "kind": "late",
+     "truck": "T08",
+     "detail": "晚到 20 min"
+    }
+   ]
+  }
+ }
+}
