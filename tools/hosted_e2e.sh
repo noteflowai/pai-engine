@@ -12,10 +12,11 @@ case "$E2E" in *[!a-z0-9-]*) echo "bad E2E name" >&2; exit 2;; esac
 REL=$(readlink -f /opt/pai/current)
 NODE=$(systemctl show pai-workbench -p ExecStart | grep -oE 'path=[^ ;]+' | head -1 | cut -d= -f2)
 W=$(mktemp -d /tmp/pai-e2e.XXXXXX); chown pai "$W"
-sed -e "s#\.\./src/\([a-z/-]*\)\.js#$REL/dist/src/\1.js#g" \
-    -e 's#createApp({ ...config, state })#createApp({ ...config, state, albAuth: undefined, publicOrigin: undefined })#' \
-    "$REL/scripts/$E2E.ts" > "$W/$E2E.ts"
-chown pai "$W/$E2E.ts"
+# The script and the sibling scripts it imports (./x.js -> ./x.ts, run with Node's type stripping).
+rewrite() { sed -e "s#\.\./src/\([a-z/-]*\)\.js#$REL/dist/src/\1.js#g" -e "s#from \"\./\([a-z-]*\)\.js\"#from \"./\1.ts\"#g" \
+    -e 's#createApp({ ...config, state })#createApp({ ...config, state, albAuth: undefined, publicOrigin: undefined })#' "$REL/scripts/$1.ts" > "$W/$1.ts"; chown pai "$W/$1.ts"; }
+rewrite "$E2E"
+for dep in $(grep -oE 'from "\./[a-z-]+\.js"' "$REL/scripts/$E2E.ts" | sed -E 's#from "\./([a-z-]+)\.js"#\1#' | sort -u); do rewrite "$dep"; done
 cd "$W"
 set -a; . /etc/pai/runtime.env; set +a
 for kv in $(systemctl show pai-workbench -p Environment --value); do export "$kv"; done
