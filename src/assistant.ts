@@ -36,6 +36,8 @@ export interface AssistantPlan {
   authority: "none"; model: { used: boolean; reason: string };
   /** Strands Decider routing suggestion when the rules found no tool (src/decider.ts); never executed. */
   suggestion?: Suggestion;
+  /** AI-engine runs: the decision model's triage in front of the large model (src/ai.ts). */
+  triage?: { skippedModel: boolean; hinted: boolean; agreement: boolean | null; relaxMismatch: boolean };
   /** Model-sourced plans: executor outcome, engine receipts and any human reconciliation. */
   source?: "rules" | "model" | "external";
   external?: { agent: string; via: "mcp"; verified?: boolean; clientId?: string; session?: string };

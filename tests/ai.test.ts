@@ -208,3 +208,44 @@ test("cad-sweep plans are validated against the bounded grid and carry no author
     assert.equal(s.store.list("cad-sweep").length, 0, "planning never runs a sweep");
   } finally { await s.cleanup(); }
 });
+
+test("decision-model triage in front of the AI engine: skip out-of-scope, hint a lane, flag disagreement, fail closed", async () => {
+  const real = globalThis.fetch;
+  let decision: { lane: string; confidence: number; relaxes: number } | "down" = "down";
+  // Stand-in for the local Strands Decider service; every other fetch passes through.
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    if (!String(url).includes("/v1/systemone")) return real(url, init);
+    if (decision === "down") throw new TypeError("connection refused");
+    return new Response(JSON.stringify({ model: "strands-decider-2B-qwen3.5-v1-2610", answers: { lane: { type: "choice", choice: decision.lane, confidence: decision.confidence,
+      probabilities: { [decision.lane]: decision.confidence } }, relaxes: { type: "noul", noul: decision.relaxes } } }), { status: 200 });
+  }) as typeof fetch;
+  const s = await setup({ deciderUrl: "http://127.0.0.1:8801/v1/systemone" });
+  const lines = async () => (await readFile(s.log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+  const answer = out({ kind: "plan", interpretation: ["复测轻量化"], plans: [{ ref: "p1", tool: "cad-review", title: "复测", rationale: "按原要求复测", payload: { variant: "lightweight" } }] });
+  const engine = { log: s.log, attempts: [{ profile: "kiro-primary", status: "succeeded", answer }] };
+  try {
+    // Out of scope with high confidence: no large-model attempt at all.
+    decision = { lane: "out-of-scope", confidence: 0.97, relaxes: 0.1 };
+    const skipped = (await s.ask("帮我订一张去上海的机票", engine)).body as AssistantPlan;
+    assert.equal(skipped.triage?.skippedModel, true); assert.equal(skipped.model.used, false); assert.equal(skipped.plans.length, 0);
+    assert.equal((await lines()).length, 0, "the executor was never called");
+    // The user forces it: the large model is asked.
+    process.env.FAKE_EXECUTOR = JSON.stringify(engine);
+    const forced = (await s.call("POST", "/api/assistant/ai", { requestId: randomUUID(), projectId: s.project.id, message: "帮我订一张去上海的机票", force: true })).body as AssistantPlan;
+    assert.equal(forced.triage?.skippedModel, false); assert.equal((await lines()).length, 1);
+    // A confident lane is a prompt hint; the plan agrees.
+    decision = { lane: "cad-review", confidence: 0.95, relaxes: 0.1 };
+    const agreed = (await s.ask("轻量化支架按原要求复测", engine)).body as AssistantPlan;
+    assert.deepEqual(agreed.triage, { skippedModel: false, hinted: true, agreement: true, relaxMismatch: false });
+    assert.match(JSON.parse((await lines()).at(-1)!).prompt, /<triage>[\s\S]*cad-review/);
+    // Disagreement and a likely relaxation the plan does not show are flagged, never blocked.
+    decision = { lane: "aero-body", confidence: 0.95, relaxes: 0.9 };
+    const flagged = (await s.ask("轻量化支架按原要求复测", engine)).body as AssistantPlan;
+    assert.equal(flagged.triage?.agreement, false); assert.equal(flagged.triage?.relaxMismatch, true); assert.equal(flagged.plans.length, 1);
+    assert.ok(flagged.interpretation.some(l => l.includes("aero-body")));
+    // Decider down: the engine runs as before.
+    decision = "down";
+    const plain = (await s.ask("轻量化支架按原要求复测", engine)).body as AssistantPlan;
+    assert.equal(plain.triage, undefined); assert.equal(plain.suggestion, undefined); assert.equal(plain.plans.length, 1);
+  } finally { globalThis.fetch = real; await s.cleanup(); }
+});

@@ -174,7 +174,8 @@ export class WorkbenchStack extends cdk.Stack {
     role.addToPolicy(new iam.PolicyStatement({ actions: ["s3:PutObject", "s3:PutObjectRetention", "s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectRetention", "s3:GetObjectAttributes"],
       resources: [packages.arnForObjects("releases/*")] }));
     const data = new ec2.Volume(this, "Data", {
-      availabilityZone: zone, size: cdk.Size.gibibytes(40), volumeType: ec2.EbsDeviceVolumeType.GP3,
+      // 40 GiB until 2026-10-11; 60 GiB for the Strands Decider runtime and model (~10 GiB) with install headroom. Grows online.
+      availabilityZone: zone, size: cdk.Size.gibibytes(60), volumeType: ec2.EbsDeviceVolumeType.GP3,
       encrypted: true, removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const ami = new cdk.CfnParameter(this, "UbuntuAmi", {
@@ -195,7 +196,8 @@ export class WorkbenchStack extends cdk.Stack {
     );
     const instance = new ec2.Instance(this, "Workbench", {
       vpc, vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, role, securityGroup: group,
-      instanceType: new ec2.InstanceType("t3.medium"),
+      // t3.medium originally; g6.xlarge (L4) since 2026-10-11 so Strands Decider runs on the same host (ADR 0002).
+      instanceType: new ec2.InstanceType(String(this.node.tryGetContext("instanceType") ?? "t3.medium")),
       machineImage: ec2.MachineImage.genericLinux({ [this.region]: ami.valueAsString }),
       associatePublicIpAddress: true, requireImdsv2: true,
       blockDevices: [{ deviceName: "/dev/sda1", volume: ec2.BlockDeviceVolume.ebs(16, { encrypted: true, volumeType: ec2.EbsDeviceVolumeType.GP3 }) }],

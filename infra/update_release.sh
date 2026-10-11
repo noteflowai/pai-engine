@@ -5,6 +5,9 @@ set -euo pipefail
 : "${PAI_ASSET_BUCKET:?}"
 : "${PAI_ASSET_KEY:?}"
 RELEASE="/opt/pai/releases/$PAI_RELEASE_HASH"
+# Data volume grown in the stack (EBS grows online): grow the filesystem to match; no-op when already full size.
+DATA_DEV=$(findmnt -n -o SOURCE /var/lib/pai/data)
+case "$(findmnt -n -o FSTYPE /var/lib/pai/data)" in ext4) resize2fs "$DATA_DEV" >/dev/null 2>&1 || true ;; xfs) xfs_growfs /var/lib/pai/data >/dev/null 2>&1 || true ;; esac
 # Package builds unpack into TMPDIR; keep them on the data volume, not the small root disk.
 PAI_TMP=/var/lib/pai/data/tmp
 install -d -m 0700 -o pai -g pai "$PAI_TMP"
@@ -44,6 +47,43 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -q libglu1-mesa libgl1 libopen
 runuser -u pai -- env TMPDIR="$PAI_TMP" PAI_PHYSICS_BOTORCH="${PAI_PHYSICS_BOTORCH:-}" PAI_PHYSICS_NEWTON="${PAI_PHYSICS_NEWTON:-}" python3 tools/setup_physics.py
 # Logistics planning artifact: hash-locked OR-Tools (wheels only); idempotent, no root needed.
 runuser -u pai -- env TMPDIR="$PAI_TMP" python3 tools/setup_logistics.py
+# Strands Decider on this host's GPU (opt-in PAI_DECIDER=1; ADR 0002). NVIDIA 580 open driver as precompiled, signed
+# modules for the running AWS kernel; the hash-locked runtime and pinned model on the data volume; a loopback-only
+# service. Without a working GPU the service is installed but not started, and the workbench fails closed (no suggestion).
+if [ "${PAI_DECIDER:-}" = "1" ]; then
+  if ! dpkg -s nvidia-headless-580-server-open >/dev/null 2>&1; then
+    DEBIAN_FRONTEND=noninteractive apt-get update -q >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends "linux-modules-nvidia-580-server-open-$(uname -r)" nvidia-headless-580-server-open nvidia-utils-580-server >/dev/null
+  fi
+  runuser -u pai -- env TMPDIR="$PAI_TMP" PAI_TOOLS_DIR=/var/lib/pai/data/state/tools python3 tools/setup_decider.py
+  MODEL=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['strandsDecider']['model'])" "$RELEASE/tools/runtime-pins.json")
+  cat > /etc/systemd/system/pai-decider.service <<UNIT
+[Unit]
+Description=PAI Strands Decider (suggestions only; loopback)
+After=network-online.target
+[Service]
+User=pai
+Group=pai
+Environment=HF_HOME=/var/lib/pai/data/state/tools/decider-hf
+Environment=HF_HUB_OFFLINE=1
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+ExecStart=/var/lib/pai/data/state/tools/decider-1/bin/strands-decider serve $MODEL --host 127.0.0.1 --port 8801 --device cuda --model-name strands-decider-2B-qwen3.5-v1-2610
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pai/data/state/tools/decider-hf
+PrivateTmp=true
+ProtectHome=true
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable pai-decider.service >/dev/null
+  if nvidia-smi -L >/dev/null 2>&1; then systemctl restart pai-decider.service; else echo "No GPU visible yet; pai-decider.service enabled, starts on a GPU instance"; fi
+  sed -i '/^PAI_DECIDER_URL=/d;/^PAI_DECIDER_MODEL=/d' /etc/pai/runtime.env
+  printf 'PAI_DECIDER_URL=http://127.0.0.1:8801/v1/systemone\nPAI_DECIDER_MODEL=strands-decider-2B-qwen3.5-v1-2610\n' >> /etc/pai/runtime.env
+fi
 # Strands Robots cross-check (hash-locked, pinned Menagerie, simulation only) only when the operator opts in.
 if [ "${PAI_ROBOTS:-}" = "1" ]; then runuser -u pai -- env TMPDIR="$PAI_TMP" python3 tools/setup_robots.py; fi
 # OS sandbox for generated CAD code; without it the lane stays disabled (fail closed).

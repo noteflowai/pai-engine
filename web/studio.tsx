@@ -216,7 +216,10 @@ export function Assistant({ onClose }: { onClose: () => void }) {
         <div className="bubble reply">
           <EngineMeta plan={plan} />
           {plan.interpretation.map((line, i) => <p key={i} className={line.startsWith("已拒绝") ? "rejected-line" : ""}>{line}</p>)}
-          {plan.suggestion && <DeciderNote suggestion={plan.suggestion} />}
+          {plan.suggestion && <DeciderNote suggestion={plan.suggestion} triage={plan.triage} />}
+          {plan.triage?.skippedModel && <div className="button-row"><button type="button" className="secondary compact" disabled={thinking}
+            onClick={() => void c.track(crypto.randomUUID(), "AI 引擎规划", "assistant", () => api<AssistantPlan>("/assistant/ai",
+              { requestId: crypto.randomUUID(), projectId: project?.id, message: plan.message, force: true })).then(() => c.refresh())}>仍然询问 AI 引擎</button></div>}
           {plan.answer && <div className="ai-answer"><p>{plan.answer.text}</p>
             {plan.answer.citations.length > 0 ? <div className="citations" role="group" aria-label="引用的记录">{plan.answer.citations.map(x =>
               <button key={x.handle} type="button" className="cite" title={x.label} onClick={() => openCitation(c, x)}>{x.label}</button>)}</div>
@@ -288,7 +291,11 @@ const LANE_LABEL: Record<string, string> = { "cad-review": "CAD 零件评审", "
   "scene-review": "Blender 工作单元", "plant-layout": "产线布局", "robot-cell": "MuJoCo 机器人工作单元", factory: "工厂维护与能源评审", "aero-body": "气动评审",
   "robot-review": "机器人记录评审", "create-project": "新建任务", "update-requirements": "修改需求", "out-of-scope": "不属于工作台的请求" };
 /** Strands Decider: shown only as a hint; the person rephrases or picks the lane. Nothing runs from here. */
-function DeciderNote({ suggestion: s }: { suggestion: NonNullable<AssistantPlan["suggestion"]> }) {
+function DeciderNote({ suggestion: s, triage }: { suggestion: NonNullable<AssistantPlan["suggestion"]>; triage?: AssistantPlan["triage"] }) {
+  if (triage && !triage.skippedModel) return <p className="decider-note" role="note">
+    决策模型分诊：{s.lane ? <><strong>{LANE_LABEL[s.lane] ?? s.lane}</strong>（置信 {s.confidence.toFixed(2)}）</> : `不确定（置信 ${s.confidence.toFixed(2)}）`}
+    {triage.agreement === true ? " · 与 AI 计划一致" : triage.agreement === false ? " · 与 AI 计划不一致，请核对" : ""}
+    {triage.relaxMismatch ? " · 可能在放宽要求，但计划没有放宽项" : ""}<small> · {s.model} · {s.latencyMs} ms</small></p>;
   return <p className="decider-note" role="note">
     {s.lane === "out-of-scope" ? <>决策模型判断这不是工作台能处理的设计请求（置信 {s.confidence.toFixed(2)}）。</>
       : s.lane ? <>决策模型建议：<strong>{LANE_LABEL[s.lane] ?? s.lane}</strong>（置信 {s.confidence.toFixed(2)}）。只是建议，不会执行；请按这个方向补充描述。</>
