@@ -93,6 +93,7 @@ export const OBJECT_TYPES: ObjectType[] = [
   T("Workflow", "workflow", "流程", "Plan", "id", "Typed JSON business process over exact artifact versions (pai-workflow-1).", ["tenant"]),
   T("WorkflowRun", "workflow-run", "流程运行", "Activity", "id", "One run: per-node outputs, receipts and pai-usage-1; no automatic retry.", ["workflowId", "state", "tenant"]),
   T("Offering", "offering", "对外提供", "Entity", "workflowId", "A maintainer's offer of one workflow (at its digest) to invite-only tenants; revocable.", ["workflowId", "workflowDigest", "tenants", "state", "createdAt"]),
+  T("AuditEvent", "audit-event", "审计记录", "Activity", "action", "One write attempt through an action: action, caller, actor, path ids, outcome and duration; never the request body. Append-only.", ["at", "action", "caller", "actor", "status", "outcome"], true),
   T("Engine", null, "原生引擎", "Agent", "name", "A native solver or model the platform runs (computed from configuration and pins; not stored).", ["name", "version", "available"]),
 ];
 
@@ -170,9 +171,33 @@ export const ACTION_TYPES: ActionType[] = [
   A("resumeWorkflowRun", "恢复流程", "POST", "/api/v1/workflow-runs/:id/resume", ["WorkflowRun"], "execute-native", M, undefined, true),
 ];
 
-/** Kinds the agent state route (/api/agent/state) already returns; ontology reads grant agents nothing beyond these. */
-export const AGENT_STATE_KINDS = ["project", "project-version", "review", "scene-review", "cad-review", "cad-sweep", "cad-optimize", "cad-inspection", "aero-review",
-  "factory-criteria", "factory-review", "feedback", "campaign", "assistant-plan", "proposal", "autonomy-grant", "autopilot", "release", "release-seal"] as const;
+/**
+ * Workspace projection (ADR 0003 step 5): the object types the workspace snapshot (/api/state, and /api/agent/state for
+ * agents) returns, under these field names. The snapshot is generated from this table, and agents' object reads are
+ * limited to exactly these kinds, so the two can never drift.
+ */
+export const WORKSPACE_FIELDS = {
+  "project": "projects",
+  "project-version": "projectVersions",
+  "review": "reviews",
+  "scene-review": "scenes",
+  "cad-review": "cads",
+  "cad-sweep": "cadSweeps",
+  "cad-optimize": "cadOptimizations",
+  "cad-inspection": "inspections",
+  "aero-review": "aeros",
+  "factory-criteria": "factoryCriteria",
+  "factory-review": "factoryReviews",
+  "feedback": "feedback",
+  "campaign": "campaigns",
+  "assistant-plan": "assistantPlans",
+  "proposal": "proposals",
+  "autonomy-grant": "autonomyGrants",
+  "autopilot": "autopilots",
+  "release": "releases",
+  "release-seal": "releaseSeals",
+} as const satisfies Partial<Record<RecordKind, string>>;
+export const AGENT_STATE_KINDS = Object.keys(WORKSPACE_FIELDS) as (keyof typeof WORKSPACE_FIELDS)[];
 /** Never served as objects: file bytes belong to their artifact version and its signed package. */
 export const NOT_OBJECT_READABLE = ["artifact-file"] as const;
 export const objectReadable = (t: ObjectType) => Boolean(t.kind) && !(NOT_OBJECT_READABLE as readonly string[]).includes(t.kind!);

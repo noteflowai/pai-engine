@@ -50,6 +50,7 @@ import { acquireRuntime } from "./runtime-lock.js";
 import { authentication } from "./auth.js";
 import { artifactRoutes } from "./artifacts/routes.js";
 import { ontologyRoutes } from "./ontology/routes.js";
+import { WORKSPACE_FIELDS } from "./ontology/model.js";
 import { interruptRunning } from "./artifacts/workflows.js";
 import { agentAuthentication, agentRoute, rewriteAgentUrl, type AgentPrincipal } from "./agent-api.js";
 
@@ -77,6 +78,15 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   const action = actionRuntime(app, raw => {
     const tenant = tenantOf.get(raw as object), principal = principals.get(raw as object);
     return tenant ? { kind: "tenant", tenant: tenant.id } : principal?.scope ? { kind: "agent", scope: principal.scope } : { kind: "maintainer" };
+  }, { record: event => store.insert("audit-event", event),
+    actor: request => { const p = principals.get(request.raw); const t = tenantOf.get(request.raw);
+      return t ? `tenant:${t.id}` : p ? `agent:${p.clientId}` : config.albAuth && typeof request.headers["x-amzn-oidc-identity"] === "string"
+        ? `cognito:${String(request.headers["x-amzn-oidc-identity"]).slice(0, 64)}` : "local-maintainer"; } });
+  // Audit log: maintainers only (not in the workspace projection, so agents and tenants never see it). Newest first.
+  app.get("/api/v1/audit", async request => {
+    const q = z.object({ action: z.string().regex(/^[a-zA-Z]{1,40}$/).optional(), limit: z.coerce.number().int().min(1).max(500).default(100) }).strict().parse(request.query);
+    const all = store.list<{ action: string }>("audit-event").filter(e => !q.action || e.action === q.action);
+    return { total: all.length, events: all.slice(-q.limit).reverse() };
   });
   const activeJobs = new Set<Promise<unknown>>();
   app.addHook("preClose", async () => { for (const end of [...streams]) end(); await Promise.allSettled([...activeJobs]); });
@@ -272,13 +282,11 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   });
   app.get("/api/state", async () => { const r = snapshotReader(); return {
     build,
-    releases: r.list("release"), autonomyGrants: r.list("autonomy-grant"), autopilots: r.list("autopilot"), releaseSeals: r.list("release-seal"), projectVersions: r.list("project-version"),
+    // Record lists are the ontology's workspace projection; derived views follow.
+    ...Object.fromEntries(Object.entries(WORKSPACE_FIELDS).map(([kind, field]) => [field, r.list(kind as RecordKind)])),
     lifecycles: Object.fromEntries(r.list<Project>("project").map(p => [p.id, lifecycle(p, r)])),
     aiTrackRecords: Object.fromEntries(r.list<Project>("project").map(p => [p.id, trackRecord(r, p.id)])),
-    projects: r.list("project"), reviews: r.list("review"), feedback: r.list("feedback"),
-    campaigns: r.list("campaign"), proposals: r.list("proposal"), scenes: r.list("scene-review"), cads: r.list("cad-review"), aeros: r.list("aero-review"), cadSweeps: r.list("cad-sweep"), cadOptimizations: r.list("cad-optimize"),
-    factoryCriteria: r.list("factory-criteria"), factoryReviews: r.list("factory-review"), inspections: r.list("cad-inspection"),
-    assistantPlans: r.list("assistant-plan"), metrics: workbench.metrics(),
+    metrics: workbench.metrics(),
     tools: toolCatalog, capabilities: { recordingVerification: true, physicalValidation: false, automaticPublication: false,
       modelProposal: Boolean(config.controllerEntrypoint && config.controllerDatabase),
       authenticatedWorkspace: Boolean(config.albAuth && config.authLogoutUrl),

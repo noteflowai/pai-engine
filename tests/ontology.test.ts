@@ -103,10 +103,16 @@ test("ontology read API: model, Turtle, engines, objects with links in both dire
 
 test("agents read only the kinds /api/agent/state already exposes; artifact file bytes are never objects", async () => {
   const { AGENT_STATE_KINDS, agentReadable, objectReadable } = await import("../src/ontology/model.js");
-  const src = await readFile("src/server.ts", "utf8");
-  const block = src.slice(src.indexOf('app.get("/api/state"'), src.indexOf("tools: toolCatalog"));
-  const stateKinds = [...block.matchAll(/r\.list\("([a-z-]+)"\)/g)].map(m => m[1]).sort();
-  assert.deepEqual([...AGENT_STATE_KINDS].sort(), [...new Set(stateKinds)], "agent object reads = the agent state route, nothing more");
+  // The snapshot is generated from WORKSPACE_FIELDS: every field is present in a real response, nothing else is a record list.
+  const { WORKSPACE_FIELDS } = await import("../src/ontology/model.js");
+  const state = await mkdtemp(join(tmpdir(), "pai-onto-proj-"));
+  const config = configuration();
+  const { app } = await createApp({ ...config, state });
+  try {
+    const body = (await app.inject({ url: "/api/state", headers: { host: `127.0.0.1:${config.port}` } })).json();
+    for (const field of Object.values(WORKSPACE_FIELDS)) assert.ok(Array.isArray(body[field]), field);
+    assert.deepEqual([...AGENT_STATE_KINDS].sort(), Object.keys(WORKSPACE_FIELDS).sort());
+  } finally { await app.close(); await rm(state, { recursive: true, force: true }); }
   for (const t of OBJECT_TYPES) if (agentReadable(t)) assert.ok(objectReadable(t));
   for (const id of ["TrialEvent", "Artifact", "ArtifactFile", "Workflow", "WorkflowRun"]) assert.equal(agentReadable(OBJECT_TYPES.find(t => t.id === id)!), false, id);
   assert.equal(objectReadable(OBJECT_TYPES.find(t => t.id === "ArtifactFile")!), false);
