@@ -7,10 +7,11 @@
  * Verifier: native/logistics_verify.py, standard library only, sharing no code with the solver; a plan is usable only
  * when it passes. Benchmarks are synthetic and labelled; they show behaviour and correctness, not production value.
  */
+import { runEngine } from "../kernel/engine-runtime.js";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { command, writePrivate } from "../adapters.js";
+import { writePrivate } from "../adapters.js";
 import type { Config } from "../config.js";
 import { DomainError, sha256 } from "../domain.js";
 import type { ArtifactAdapter, ArtifactManifest, OperationResult, RunContext } from "./contract.js";
@@ -50,7 +51,7 @@ const issues = (r: { success: boolean; error?: z.ZodError }) => r.success ? [] :
 
 
 async function python(config: Config, args: string[], cwd: string, timeoutMs: number) {
-  const r = await command(config.logisticsPython!, ["-I", ...args], cwd, undefined, timeoutMs);
+  const r = await runEngine(config.repository, { engine: "logistics", program: config.logisticsPython!, args: ["-I", ...args], cwd: cwd, mounts: { write: [cwd] }, timeoutMs: timeoutMs });
   return r;
 }
 
@@ -103,8 +104,8 @@ export const logisticsAdapter: ArtifactAdapter = {
       orders: z.number().int().min(1).max(LIMITS.maxOrders).default(40), vehicles: z.number().int().min(1).max(LIMITS.maxVehicles).default(8) }).strict(),
     async generate(ctx, params) {
       const code = await materialise(ctx), f = join(ctx.directory, "sample.json");
-      const r = await command("python3", ["-I", join(code, "logistics_generate.py"), "--seed", String(params.seed), "--orders", String(params.orders),
-        "--vehicles", String(params.vehicles), "--scenario", String(params.scenario), "--output", f], ctx.directory, undefined, 60_000);
+      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(params.seed), "--orders", String(params.orders),
+        "--vehicles", String(params.vehicles), "--scenario", String(params.scenario), "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("SAMPLE_FAILED", "generator failed", 500);
       return JSON.parse(await readFile(f, "utf8"));
     },
@@ -113,7 +114,7 @@ export const logisticsAdapter: ArtifactAdapter = {
   async runtimeReady(config, manifest) {
     if (!config.logisticsPython) return { ready: false, reason: "PAI_LOGISTICS_PYTHON is not set (python3 tools/setup_logistics.py)" };
     const want = manifest.dependencies.find(d => d.name === "ortools")?.version;
-    const r = await command(config.logisticsPython, ["-I", "-c", "import ortools; print(ortools.__version__)"], config.state, undefined, 30_000).catch(() => undefined);
+    const r = await runEngine(config.repository, { engine: "logistics", program: config.logisticsPython, args: ["-I", "-c", "import ortools; print(ortools.__version__)"], cwd: config.state, mounts: { write: [] }, timeoutMs: 30_000 }).catch(() => undefined);
     const have = r?.exitCode === 0 ? r.stdout.trim() : undefined;
     return have === want ? { ready: true } : { ready: false, reason: `runtime OR-Tools ${have ?? "unavailable"} differs from the artifact's pin ${want}` };
   },
@@ -140,7 +141,7 @@ export const logisticsAdapter: ArtifactAdapter = {
       const planFile = join(ctx.directory, "plan-in.json"), out = join(ctx.directory, "verification.json");
       await writePrivate(planFile, JSON.stringify(inputs.plan));
       // The verifier is standard-library only and runs with the system interpreter, not the solver's environment.
-      const r = await command("python3", ["-I", join(code, "logistics_verify.py"), "--problem", problemFile, "--plan", planFile, "--output", out], ctx.directory, undefined, 120_000);
+      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_verify.py"), "--problem", problemFile, "--plan", planFile, "--output", out], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 120_000 });
       const receipts = [{ command: ["python3", "logistics_verify.py"], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000 }];
       if (r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: `verifier exited ${r.exitCode}`, receipts,
         usage: { cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: 0 } };
@@ -160,7 +161,7 @@ export const logisticsAdapter: ArtifactAdapter = {
     const code = await materialise(ctx);
     const gen = async (scenario: string, seed = 7) => {
       const f = join(ctx.directory, `bench-${scenario}-${seed}.json`);
-      const r = await command("python3", ["-I", join(code, "logistics_generate.py"), "--seed", String(seed), "--orders", "24", "--vehicles", "5", "--scenario", scenario, "--output", f], ctx.directory, undefined, 60_000);
+      const r = await runEngine(ctx.config.repository, { engine: "logistics", program: "python3", args: ["-I", join(code, "logistics_generate.py"), "--seed", String(seed), "--orders", "24", "--vehicles", "5", "--scenario", scenario, "--output", f], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs: 60_000 });
       if (r.exitCode !== 0) throw new DomainError("BENCHMARK", `generator failed for ${scenario}`, 500);
       return JSON.parse(await readFile(f, "utf8"));
     };

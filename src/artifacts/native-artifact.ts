@@ -3,11 +3,12 @@
  * lock-file versions, the clean source commit for provenance, materialising the version's exact files (each checked
  * against the manifest digest) and running a script in the pinned interpreter with a receipt and pai-usage-1 figures.
  */
+import { runEngine } from "../kernel/engine-runtime.js";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { command, writePrivate } from "../adapters.js";
+import { writePrivate } from "../adapters.js";
 import { DomainError, sha256 } from "../domain.js";
 import type { OperationResult, RunContext } from "./contract.js";
 
@@ -42,7 +43,7 @@ export async function materialise(ctx: RunContext) {
 export async function nativeStep(ctx: RunContext, interpreter: string, script: string, args: string[], output: string, outputName: string,
   status: (value: Record<string, unknown>) => string, timeoutMs: number): Promise<OperationResult> {
   const t0 = Date.now();
-  const r = await command(interpreter, ["-I", script, ...args], ctx.directory, undefined, timeoutMs);
+  const r = await runEngine(ctx.config.repository, { engine: "logistics", program: interpreter, args: ["-I", script, ...args], cwd: ctx.directory, mounts: { write: [ctx.directory] }, timeoutMs });
   const receipts = [{ command: ["python", script.split("/").at(-1)!, ...args.filter(a => !a.startsWith("/"))], exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000 }];
   if (r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: `${script.split("/").at(-1)} exited ${r.exitCode}`, receipts,
     usage: { cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: 0 } };

@@ -1,8 +1,9 @@
+import { runEngine } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { command, writePrivate } from "./adapters.js";
+import { writePrivate } from "./adapters.js";
 import type { Config } from "./config.js";
 import { Id, type Project, type Receipt } from "./contracts.js";
 import { canonical, DomainError, sha256 } from "./domain.js";
@@ -107,7 +108,8 @@ export async function sweepCad(store: Store, config: Config, project: Project, i
     };
     const args = ["-I", "-W", "ignore", native("cad_sweep.py"), "--input", input, "--output", directory];
     // ~6 s per point measured on t3.medium-class CPUs; bounded wall time with headroom.
-    const r = await command(config.cadquery, args, config.repository, undefined, Math.max(120_000, total * 20_000), observe);
+    const r = await runEngine(config.repository, { engine: "cad", program: config.cadquery, args, cwd: config.repository, mounts: { read: [input], write: [directory] },
+      timeoutMs: Math.max(120_000, total * 20_000), onLine: observe });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cadquery-sweep", command: ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
       exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { script: record.sourceDigests["cad-sweep.py"] } });
