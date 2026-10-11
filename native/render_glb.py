@@ -11,6 +11,8 @@ import json, sys
 from pathlib import Path
 import bpy
 from mathutils import Vector
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from blender_gpu import use_render_device  # noqa: E402
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 args = {argv[i].lstrip("-"): argv[i + 1] for i in range(0, len(argv) - 1, 2)}
@@ -25,10 +27,11 @@ lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)
 hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
 centre, size = (lo + hi) / 2, max((hi - lo).length, 1e-6)
 scene = bpy.context.scene
-# Cycles on the CPU (headless CI has no GPU context for Workbench/EEVEE). Each mesh shows its COLOR_0 as pure
+# Cycles (headless: no GPU context for Workbench/EEVEE); on the GPU when the runtime offers one, else the CPU. Each mesh shows its COLOR_0 as pure
 # emission: the pixel is the solver's colour, unlit and unshaded; Freestyle draws the silhouette for shape.
 scene.render.engine = "CYCLES"
-scene.cycles.device, scene.cycles.samples, scene.cycles.use_denoising = "CPU", 16, False
+scene.cycles.samples, scene.cycles.use_denoising = 16, False
+use_render_device(scene)
 for o in objs:
     mat = bpy.data.materials.new("field"); mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links

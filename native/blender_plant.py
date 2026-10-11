@@ -28,6 +28,8 @@ import bpy
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from blender_gpu import use_render_device  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", required=True)
@@ -488,7 +490,7 @@ look = Vector((cx - 5.0, 3.2, 0.2))
 cam.rotation_euler = (look - cam.location).to_track_quat("-Z", "Y").to_euler()
 scene.camera = cam
 scene.render.engine = "CYCLES"
-scene.cycles.device = "CPU"
+use_render_device(scene)
 scene.cycles.samples = 16 if hero else 12
 scene.cycles.use_denoising = True
 scene.cycles.max_bounces = 6

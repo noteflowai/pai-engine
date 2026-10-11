@@ -1,4 +1,4 @@
-import { runEngine } from "./kernel/engine-runtime.js";
+import { runEngine, toolDigest } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
@@ -153,7 +153,8 @@ export async function reviewScene(store: Store, config: Config, project: Project
       const scriptHash = sha256(await readFile(script));
       const nativeBefore = await adapters.sourceDigests();
       const engineKey = robot ? "physics-python" : "blender-binary";
-      record.sourceDigests = { ...nativeBefore, [plant ? "blender-plant.py" : robot ? "robot-sim.py" : "blender-workcell.py"]: scriptHash, [engineKey]: sha256(await readFile(engine)),
+      const engineDigest = () => toolDigest(config, robot ? "physics" : "blender", engine, async () => sha256(await readFile(engine)));
+      record.sourceDigests = { ...nativeBefore, [plant ? "blender-plant.py" : robot ? "robot-sim.py" : "blender-workcell.py"]: scriptHash, ...(robot ? {} : { "blender-gpu.py": sha256(await readFile(join(config.repository, "native/blender_gpu.py"))) }), [engineKey]: await engineDigest(),
         ...(robot ? { "physics-lock": sha256(await readFile(join(config.repository, "native/physics-requirements.txt"))) } : {}) };
       let toolInput: { stl: string; sha256: string; brepMassG: number; motorAxisMm: number; payloadKg: number } | undefined;
       if (robot && request.tool) {
@@ -254,7 +255,7 @@ export async function reviewScene(store: Store, config: Config, project: Project
       const lost = record.baseline!.checks.filter(c => c.passed && !record.candidate!.checks.find(n => n.id === c.id)!.passed).length;
       if (diff.value.blocking_changes !== lost || diff.value.gate_passed !== (lost === 0)) throw new DomainError("SCENE_DIFF_MISMATCH", "Native geometry and independent comparison disagree");
       if (sha256(await readFile(script)) !== scriptHash || canonical(nativeBefore) !== canonical(await adapters.sourceDigests())
-          || record.sourceDigests[engineKey] !== sha256(await readFile(engine))) throw new DomainError("SOURCE_CHANGED", "Native verifier changed during scene production");
+          || record.sourceDigests[engineKey] !== await engineDigest()) throw new DomainError("SOURCE_CHANGED", "Native verifier changed during scene production");
       record.diff = diff.value; record.receipts.push(diff.receipt);
       if (robot) record.scope = "rigid-body-simulation";
       return record.candidate!.checks.every(c => c.passed) ? "accepted-static-scene" : "rejected";

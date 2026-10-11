@@ -79,5 +79,13 @@
     "note": "Hosted on the workbench instance's L4 (g6.xlarge) as pai-decider.service, loopback 127.0.0.1:8801, offline (HF_HUB_OFFLINE=1). Triage and suggestions only, never verdicts.",
     "lock": "native/decider-requirements.txt",
     "driver": "NVIDIA 580 server open (Ubuntu linux-modules-nvidia-580-server-open-<kernel>)"
+  },
+  "nvidiaContainerToolkit": {
+    "package": "nvidia-container-toolkit-base",
+    "version": "1.20.1-1",
+    "repository": "https://nvidia.github.io/libnvidia-container/stable/deb/amd64",
+    "keyUrl": "https://nvidia.github.io/libnvidia-container/gpgkey",
+    "keyFingerprint": "C95B321B61E88C1809C4F759DDCAE044F796ECB0",
+    "note": "Only nvidia-ctk, to generate the CDI spec for rootless podman (user decision 2026-10-11). Spec written as JSON 0.6.0 without additionalGids (podman 4.9 reads CDI <= 0.6.0; the gids are for /dev/dri and cannot be applied with a single-uid mapping)."
   }
 }

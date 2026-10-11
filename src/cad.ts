@@ -551,7 +551,7 @@ export async function renderResult(config: Config, record: { receipts: Receipt[]
     cwd: config.repository, mounts: { read: [glb], write: [dirname(png)] }, timeoutMs: 180_000, gpu: "preferred" });
   await writePrivate(`${png}.log`, `${r.stdout}\n${r.stderr}`);
   record.receipts.push({ adapter: "blender-render", command: ["blender", "render_glb.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode, runtime: r.runtime,
-    stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)) } });
+    stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)), "blender-gpu": sha256(await readFile(join(config.repository, "native/blender_gpu.py"))) } });
   return r.exitCode === 0;
 }
 

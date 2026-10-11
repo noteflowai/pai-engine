@@ -34,6 +34,7 @@ export interface EngineCall {
   untrusted?: boolean;
   gpu?: "none" | "preferred";
 }
+/** `device` is what the runtime offered the engine (a GPU via CDI, or CPU only); engines log the device they used. */
 export interface EngineRuntime { backend: "process" | "container"; engine: Engine; device: "cpu" | "gpu"; image?: string }
 export interface EngineResult { stdout: string; stderr: string; exitCode: number; startedAt: string; finishedAt: string; runtime: EngineRuntime }
 export interface EngineHost { repository: string; engineContainer?: EngineContainerConfig }
@@ -93,8 +94,11 @@ export function containerArgs(c: EngineContainerConfig, call: EngineCall, reposi
   // Rootless podman maps only the service user (single mapping): container root is that unprivileged user, so outputs
   // stay owned by it. Docker runs as the caller's uid/gid instead.
   const user = c.cli === "podman" ? ["--user", "0:0", "--cgroups", "disabled"] : ["--user", `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`];
-  return [...global, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-    "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", ...user, ...gpu,
+  // The NVIDIA CDI hooks create driver-library symlinks and the loader cache inside the container, so a GPU container
+  // keeps a writable root; it is still single-use (--rm), unprivileged and without network, and the host is unchanged.
+  const root = gpu.length ? [] : ["--read-only"];
+  return [...global, "run", "--rm", "--name", name, "--network", "none", ...root, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+    "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", ...user, ...gpu, ...(gpu.length ? ["-e", "PAI_GPU=1"] : []),
     "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "PYTHONUNBUFFERED=1", "-e", "HOME=/tmp",
     ...volumes, "-w", workdir, "--entrypoint", imageProgram(c, call.program), image, ...call.args];
 }

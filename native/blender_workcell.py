@@ -14,6 +14,8 @@ import sys
 import bpy
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from blender_gpu import use_render_device  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--input", required=True)
@@ -106,7 +108,7 @@ key.data.shape = "DISK"
 key.data.size = 5
 scene.world.color = (0.35, 0.35, 0.35)
 scene.render.engine = "CYCLES"
-scene.cycles.device = "CPU"
+use_render_device(scene)
 scene.cycles.samples = 12
 scene.render.threads_mode = "FIXED"
 scene.render.threads = 4
