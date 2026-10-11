@@ -15,7 +15,8 @@ import type { Release } from "./release.js";
  */
 export type StageId = "requirements" | "design" | "validate" | "evidence" | "feedback" | "deliver";
 export type StageStatus = "pending" | "active" | "attention" | "done";
-export type EvidenceKind = "robot-review" | "blender-scene" | "factory-twin" | "cad-part" | "aero-body";
+export type { EvidenceKind } from "./ontology/evidence.js";
+import type { EvidenceKind } from "./ontology/evidence.js";
 export interface StageState { id: StageId; index: number; label: string; status: StageStatus; metric: string; detail: string }
 export interface FailingCase { kind: EvidenceKind; runId: string; seed: number | null; checkId?: string; label: string; feedbackId?: string; feedbackStatus?: string }
 export interface Activity { at: string; stage: StageId; label: string; detail?: string; ref?: { kind: EvidenceKind | "feedback" | "campaign" | "plan" | "release"; id: string } }

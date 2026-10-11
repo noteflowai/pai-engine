@@ -1,5 +1,5 @@
 import { validRuntimeArn } from "./agentcore.js";
-import { parseTenants, type Tenant } from "./tenants.js";
+import { parseTenants, type Tenant } from "./tenant-config.js";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
