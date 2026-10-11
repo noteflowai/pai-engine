@@ -112,7 +112,7 @@ export async function sweepCad(store: Store, config: Config, project: Project, i
       timeoutMs: Math.max(120_000, total * 20_000), onLine: observe });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cadquery-sweep", command: ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
-      exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { script: record.sourceDigests["cad-sweep.py"] } });
+      exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout), sourceDigests: { script: record.sourceDigests["cad-sweep.py"] } });
     if (r.exitCode !== 0) throw new DomainError("CAD_SWEEP_FAILED", "Native sweep failed; retain receipts and inspect local artifacts", 422);
     const text = await readFile(join(directory, "sweep.json"), "utf8");
     const result = SweepResult.parse(JSON.parse(text));

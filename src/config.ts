@@ -65,9 +65,10 @@ function engineContainer(env: NodeJS.ProcessEnv): EngineContainerConfig | undefi
   const engines = (env.PAI_ENGINE_CONTAINERS ?? "").split(",").map(x => x.trim()).filter(Boolean);
   if (!engines.length) return undefined;
   const images = JSON.parse(env.PAI_ENGINE_IMAGES || "{}") as Record<string, string>;
-  for (const e of engines) if (!/^[a-z0-9.-]+(:[0-9]+)?\/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(images[e] ?? ""))
-    throw new Error(`PAI_ENGINE_IMAGES must pin ${e} by digest`);
   const cli = env.PAI_ENGINE_CONTAINER_CLI === "docker" ? "docker" : "podman";
+  // A registry reference pinned by digest; a local Docker image id (also content-addressed) is accepted for development.
+  const pinned = (ref: string) => /^[a-z0-9.-]+(:[0-9]+)?\/[a-z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(ref) || (cli === "docker" && /^sha256:[a-f0-9]{64}$/.test(ref));
+  for (const e of engines) if (!pinned(images[e] ?? "")) throw new Error(`PAI_ENGINE_IMAGES must pin ${e} by digest`);
   if (!env.PAI_ENGINE_TOOLS_DIR) throw new Error("PAI_ENGINE_TOOLS_DIR is required with PAI_ENGINE_CONTAINERS");
   return { cli, images, engines, toolsDir: env.PAI_ENGINE_TOOLS_DIR.replace(/\/+$/, ""), storageRoot: env.PAI_CONTAINERS_ROOT || undefined, gpu: env.PAI_ENGINE_GPU === "1" };
 }

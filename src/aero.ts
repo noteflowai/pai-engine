@@ -133,7 +133,7 @@ export async function reviewAero(store: Store, config: Config, project: Project,
         await observed;
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
         await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
-        record.receipts.push({ adapter: "openfoam-native", command: ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
+        record.receipts.push({ adapter: "openfoam-native", command: ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode, runtime: r.runtime,
           stdoutSha256: sha256(r.stdout), sourceDigests: { script: before["cfd-review.py"], image: record.sourceDigests["openfoam-image"] } });
         publish(request.requestId, { kind: "step", id: `cfd-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name, detail: `exit ${r.exitCode}` });
         if (r.exitCode !== 0) throw new DomainError("CFD_FAILED", `Native CFD failed (${name}); retain receipts and inspect local artifacts`, 422);

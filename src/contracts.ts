@@ -1,3 +1,4 @@
+import type { EngineRuntime } from "./kernel/engine-runtime.js";
 import { EvidenceKindSchema } from "./ontology/evidence.js";
 import { z } from "zod";
 
@@ -116,6 +117,8 @@ export interface Receipt {
   exitCode: number;
   stdoutSha256: string;
   sourceDigests: Record<string, string>;
+  /** Engine runtime that executed it (ADR 0004): backend, image digest in a container, device. Absent on older records. */
+  runtime?: EngineRuntime;
 }
 export interface ProjectVersion {
   id: string; projectId: string; revision: number; title: string; intendedDecision: string;

@@ -29,6 +29,7 @@
 - 第 1 步（PR #44）：已合并。
 - 第 2 步：`engines/Dockerfile.<引擎>` 六个镜像（cad、physics、blender、robots、newton、logistics），各自用宿主机同一个 `tools/setup_*.py` 装到同一布局 `/opt/pai/tools`，所以容器后端按前缀把宿主机工具路径映射进镜像。基础镜像按摘要固定，以 nobody 运行，`HOME=/tmp`；只复制安装脚本、版本 pin 和哈希锁，不含 `native/` 脚本。`tools/package_engines.py` 按每个 Dockerfile 及其复制的文件打 `engine-<引擎>-<16 位摘要>` 标签；独立 ECR 仓库 `pai-engines`（不可变标签、推送即扫描、每个引擎保留 3 个，不影响 Batch 在用的 `pai-solver` 镜像）；CodeBuild `pai-engine-images` 构建，新镜像先在无网络、只读根、无能力的容器里冒烟再推送；实例角色只获准从 `pai-engines` 拉取。本机加固容器（`--network none --read-only --cap-drop ALL`）冒烟：OR-Tools 9.15.6755、CadQuery 2.8.0（几何有效）、Strands Robots 0.5.3 + UR5e、gmsh 4.15.2 / CalculiX 2.21 / BoTorch 0.18.1、Newton 1.6.0 / Warp 1.17.0 `cuda True`、Blender 5.2.2 OptiX 看到 GPU。镜像签名留到第 3 步与宿主机校验一起做。
 - 第 3 步（容器后端）：`backendFor` 只把配置里切换的引擎放进容器；需要 AWS 网络的 Batch 客户端和模型写的代码（仍由 bubblewrap 隔离，gVisor 一步再换）留在进程后端。每次运行一个一次性容器：`--network none --read-only --cap-drop ALL --security-opt no-new-privileges`、`/tmp` 为 tmpfs，只按相同路径挂声明的足迹，宿主机工具路径按前缀映射到镜像，参数不变；超时后按名字删除容器，不留残余。宿主机用 rootless podman、单 uid 映射（不需要 setuid 的 newuidmap，服务保留 `NoNewPrivileges`），存储在数据卷，镜像按摘要拉取（运维脚本从 PAISolver 输出的标签解析摘要），本次发布不引用的镜像被删除。回执记录 `runtime`（后端、镜像摘要、设备）。镜像删除了系统与 venv 里的 pip（扫描的 4 个 HIGH 都来自它）。本机验证：物流与场地制品在 Docker 容器里跑完整 e2e，路线摘要与进程后端逐字节一致（`routesSha256 d37fcf6f…`），超时用例的容器被清理。
+- 第 4 步（cad、physics 进容器）：physics 镜像同时装 CadQuery（寻优与 FEA 每个点重新生成几何，和宿主机一致）。输入文件里交给引擎的工具路径（CalculiX、CadQuery 解释器）由 `enginePath` 换成引擎看到的路径；回执里这些工具的摘要在容器中记为镜像摘要（`toolDigest`），不再记一个没被执行的宿主机文件。所有原生回执带 `runtime`。机器人仿真把末端零件 STL 声明为只读输入。
 
 ## 代价
 

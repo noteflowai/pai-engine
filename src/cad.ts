@@ -1,4 +1,4 @@
-import { runEngine } from "./kernel/engine-runtime.js";
+import { enginePath, runEngine, toolDigest } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { readFile, readdir, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -339,8 +339,8 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
       const scriptsBefore = await scriptDigests();
       const nativeBefore = await adapters.sourceDigests();
       const codeSha256 = generated ? sha256(generated.code) : undefined;
-      record.sourceDigests = { ...nativeBefore, ...scriptsBefore, "cadquery-lock": sha256(await readFile(lock)), "cadquery-python": sha256(await readFile(cadqueryPython)),
-        ...(structural ? { "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "ccx": sha256(await readFile(config.ccx!)) } : {}),
+      record.sourceDigests = { ...nativeBefore, ...scriptsBefore, "cadquery-lock": sha256(await readFile(lock)), "cadquery-python": await toolDigest(config, "cad", cadqueryPython, async () => sha256(await readFile(cadqueryPython))),
+        ...(structural ? { "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "ccx": await toolDigest(config, "physics", config.ccx!, async () => sha256(await readFile(config.ccx!))) } : {}),
         ...(codeSha256 ? { "generated-code": codeSha256 } : {}) };
       const remote = Boolean(generated && config.agentcoreSandboxArn);
       const runtime = generated && !remote ? await sandboxRuntime(config) : undefined;
@@ -393,7 +393,7 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
         await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
         own.push({ adapter: sandboxed ? "cadquery-sandbox-check" : "cadquery-native", command: sandboxed ? ["bwrap", "…", "python", "cad_generated.py"] : ["python", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
-          exitCode: r.exitCode, stdoutSha256: sha256(r.stdout),
+          exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout),
           sourceDigests: sandboxed ? { script: scriptsBefore["cad-generated.py"], checks: scriptsBefore["cad-checks.py"] } : { script: scriptHash, checks: scriptsBefore["cad-checks.py"] } });
         publish(request.requestId, { kind: "step", id: `cad-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name, detail: `exit ${r.exitCode}` });
         store.put("cad-review", record);
@@ -414,7 +414,7 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
           publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM：三轴铣削装夹、钻孔与单件成本（${name === "baseline" ? "基准" : "候选"}）`, status: "running", which: name });
           const r = await runEngine(config, { engine: "cad", program: cadquery, args: ["-I", "-W", "ignore", native("cad_dfm.py"), "--step", join(target, "part.step"), "--shop", native("dfm-shop.json"),
             "--requirements", JSON.stringify(dfm), "--output", join(target, "dfm.json")], cwd: config.repository, mounts: { write: [target] }, timeoutMs: 180_000 });
-          own.push({ adapter: "cadquery-dfm", command: ["python", "cad_dfm.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
+          own.push({ adapter: "cadquery-dfm", command: ["python", "cad_dfm.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode, runtime: r.runtime,
             stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(native("cad_dfm.py"))), shop: sha256(await readFile(native("dfm-shop.json"))) } });
           publish(request.requestId, { kind: "step", id: `dfm-${name}`, label: `DFM（${name === "baseline" ? "基准" : "候选"}）`, status: r.exitCode === 0 ? "done" : "failed", which: name,
             detail: (() => { try { const d = JSON.parse(r.stdout.trim().split("\n").at(-1)!); return `${d.setups.length} 次装夹（${d.setups.join("、")}）· 估算 ${d.unitCostEur} EUR · 加工 ${d.machiningMinutes} min`; } catch { return `exit ${r.exitCode}`; } })() });
@@ -464,7 +464,7 @@ async function runFea(config: Config, publish: LiveBus["publish"], record: CadRe
   const input = join(target, "..", `${name}-fea-input.json`);
   const description = pillow ? `radial bearing load ${structural.direction}, cosine pressure over the loaded half of the seat; M8 bores fixed`
     : "radial pulley force, statically equivalent on the four M3 bores";
-  await writePrivate(input, JSON.stringify({ step: join(target, "part.step"), parameters, ccx: config.ccx, requirements: structural,
+  await writePrivate(input, JSON.stringify({ step: join(target, "part.step"), parameters, ccx: enginePath(config, "physics", config.ccx!), requirements: structural,
     load: { forceN: structural.forceN, leverMm: structural.leverMm, ...(pillow ? { direction: structural.direction } : {}), description } }));
   const { script: file } = FAMILY_FEA[family];
   const script = join(config.repository, "native", file);
@@ -474,7 +474,7 @@ async function runFea(config: Config, publish: LiveBus["publish"], record: CadRe
   await writePrivate(join(target, "..", `${name}.fea.stderr.log`), r.stderr);
   record.receipts.push({ adapter: "calculix-fea", command: ["python", file], startedAt: r.startedAt, finishedAt: r.finishedAt,
     exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)), core: sha256(await readFile(join(config.repository, "native/fea_core.py"))),
-      ccx: sha256(await readFile(config.ccx!)) } });
+      ccx: await toolDigest(config, "physics", config.ccx!, async () => sha256(await readFile(config.ccx!))) }, runtime: r.runtime });
   publish(requestId, { kind: "step", id: `fea-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name, detail: `exit ${r.exitCode}` });
   if (r.exitCode !== 0) throw new DomainError("FEA_FAILED", "Native FEA failed; retain receipts and inspect the solver log", 422);
   const fea = FeaResult.parse(JSON.parse(await readFile(join(target, "fea.json"), "utf8")));
@@ -507,7 +507,7 @@ async function runCam(config: Config, publish: LiveBus["publish"], record: CadRe
     : await runEngine(config, { engine: "cam", program: config.camPython!, args: ["-I", native("cam_part.py"), "--step", join(target, "part.step"), "--dfm", join(target, "dfm.json"),
         "--shop", native("dfm-shop.json"), "--output", target], cwd: tmpdir(), mounts: { write: [target] }, timeoutMs: 1_800_000 });
   await writePrivate(join(target, "..", `${name}.cam.log`), `${gen.stdout}\n${gen.stderr}`);
-  record.receipts.push({ adapter: camRunner(config) === "batch" ? "freecad-cam-batch" : "freecad-cam", command: ["python", camRunner(config) === "batch" ? "cam_remote.py" : "cam_part.py"], startedAt: gen.startedAt, finishedAt: gen.finishedAt, exitCode: gen.exitCode,
+  record.receipts.push({ adapter: camRunner(config) === "batch" ? "freecad-cam-batch" : "freecad-cam", command: ["python", camRunner(config) === "batch" ? "cam_remote.py" : "cam_part.py"], startedAt: gen.startedAt, finishedAt: gen.finishedAt, exitCode: gen.exitCode, runtime: gen.runtime,
     stdoutSha256: sha256(gen.stdout), sourceDigests: { script: sha256(await readFile(native("cam_part.py"))), lock: sha256(await readFile(native("cam-requirements.txt"))),
       shop: sha256(await readFile(native("dfm-shop.json"))) } });
   if (gen.exitCode === 3) {
@@ -524,7 +524,7 @@ async function runCam(config: Config, publish: LiveBus["publish"], record: CadRe
         "--timeout-seconds", "3600"], cwd: config.repository, mounts: { write: [target] }, timeoutMs: 3_900_000, network: "aws" })
     : await runEngine(config, { engine: "cad", program: config.cadquery!, args: ["-I", "-W", "ignore", native("cam_verify.py"), "--step", join(target, "part.step"), "--cam", join(target, "cam.json"),
         "--shop", native("dfm-shop.json"), "--output", join(target, "cam-verify.json")], cwd: config.repository, mounts: { write: [target] }, timeoutMs: 1_800_000 });
-  record.receipts.push({ adapter: camRunner(config) === "batch" ? "cam-dexel-verify-batch" : "cam-dexel-verify", command: ["python", camRunner(config) === "batch" ? "cam_remote.py --verify" : "cam_verify.py"], startedAt: ver.startedAt, finishedAt: ver.finishedAt, exitCode: ver.exitCode,
+  record.receipts.push({ adapter: camRunner(config) === "batch" ? "cam-dexel-verify-batch" : "cam-dexel-verify", command: ["python", camRunner(config) === "batch" ? "cam_remote.py --verify" : "cam_verify.py"], startedAt: ver.startedAt, finishedAt: ver.finishedAt, exitCode: ver.exitCode, runtime: ver.runtime,
     stdoutSha256: sha256(ver.stdout), sourceDigests: { script: sha256(await readFile(native("cam_verify.py"))) } });
   if (ver.exitCode !== 0) throw new DomainError("CAM_VERIFY_FAILED", "CAM verification could not run; retain receipts", 422);
   const v = z.object({ schema: z.literal("pai-cam-verify-1"), passed: z.boolean(), cycleMinutes: z.number(),
@@ -550,7 +550,7 @@ export async function renderResult(config: Config, record: { receipts: Receipt[]
   const r = await runEngine(config, { engine: "blender", program: config.blender, args: ["--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "2", "--python", script, "--", "--input", glb, "--output", png],
     cwd: config.repository, mounts: { read: [glb], write: [dirname(png)] }, timeoutMs: 180_000, gpu: "preferred" });
   await writePrivate(`${png}.log`, `${r.stdout}\n${r.stderr}`);
-  record.receipts.push({ adapter: "blender-render", command: ["blender", "render_glb.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
+  record.receipts.push({ adapter: "blender-render", command: ["blender", "render_glb.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode, runtime: r.runtime,
     stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)) } });
   return r.exitCode === 0;
 }

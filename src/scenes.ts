@@ -213,12 +213,12 @@ export async function reviewScene(store: Store, config: Config, project: Project
           : ["--background", "--factory-startup", "--disable-autoexec", "--python-exit-code", "2", "--python", script,
             "--", "--input", join(directory, `${name}-input.json`), "--output", target];
         const r = await runEngine(config, { engine: robot ? "physics" : "blender", program: engine, args, cwd: config.repository,
-          mounts: { read: [join(directory, `${name}-input.json`)], write: [target] }, timeoutMs: plant ? 900_000 : robot ? 300_000 : 120_000, onLine: observe, gpu: robot ? "none" : "preferred" });
+          mounts: { read: [join(directory, `${name}-input.json`), ...(toolInput ? [toolInput.stl] : [])], write: [target] }, timeoutMs: plant ? 900_000 : robot ? 300_000 : 120_000, onLine: observe, gpu: robot ? "none" : "preferred" });
         await observed;
         await writePrivate(join(directory, `${name}.stdout.log`), r.stdout);
         await writePrivate(join(directory, `${name}.stderr.log`), r.stderr);
         record.receipts.push({ adapter: robot ? "mujoco-native" : "blender-native", command: [robot ? "python" : "blender", ...args], startedAt: r.startedAt, finishedAt: r.finishedAt,
-          exitCode: r.exitCode, stdoutSha256: sha256(r.stdout), sourceDigests: { "script": scriptHash } });
+          exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout), sourceDigests: { "script": scriptHash } });
         store.put("scene-review", record);
         publish(request.requestId, { kind: "step", id: `blender-${name}`, label, status: r.exitCode === 0 ? "done" : "failed", which: name,
           detail: `exit ${r.exitCode}` });
@@ -287,7 +287,7 @@ async function robotsCheck(config: Config, record: SceneReview, target: string, 
     const r = await runEngine(config, { engine: "robots", program: bwrap, args: sandboxArgs(config, { python, venv, native: join(config.repository, "native") },
       { readOnly: [config.robotsAssets!, target], writable: [scratch] }, argv), cwd: "/", mounts: { read: [config.robotsAssets!, target], write: [scratch] }, timeoutMs: 300_000, untrusted: true });
     record.receipts.push({ adapter: "strands-robots", command: ["bwrap", "--unshare-all", "python", "robots_crosscheck.py", "--robot", "ur5e"], startedAt: r.startedAt, finishedAt: r.finishedAt,
-      exitCode: r.exitCode, stdoutSha256: sha256(r.stdout),
+      exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout),
       sourceDigests: { script: sha256(await readFile(script)), lock: sha256(await readFile(join(config.repository, "native/robots-requirements.txt"))), menagerie: pins.menagerie.commit } });
     if (r.exitCode !== 0) return fail("ROBOTS_CROSSCHECK_FAILED", `isolated run exited ${r.exitCode}; see the retained receipt`);
     const j = JSON.parse(await readFile(output, "utf8")) as { robot: string; strandsRobots: string; menagerieCommit: string; passed: boolean; configurations: number; mode: string;
@@ -313,7 +313,7 @@ async function newtonCheck(config: Config, record: SceneReview, target: string, 
   publish(requestId, { kind: "step", id: "newton-usd", label, status: "running", which: "candidate" });
   const args = [script, "--usd", join(target, "scene.usda"), "--mjcf", join(target, "scene.xml"), "--output", join(target, "newton.json")];
   const r = await runEngine(config, { engine: "newton", program: config.newtonPython!, args, cwd: tmpdir(), mounts: { read: [target], write: [target] }, timeoutMs: 300_000, gpu: "preferred" });
-  record.receipts.push({ adapter: "newton-usd", command: ["python", "usd_newton_check.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode,
+  record.receipts.push({ adapter: "newton-usd", command: ["python", "usd_newton_check.py"], startedAt: r.startedAt, finishedAt: r.finishedAt, exitCode: r.exitCode, runtime: r.runtime,
     stdoutSha256: sha256(r.stdout), sourceDigests: { script: sha256(await readFile(script)), lock: sha256(await readFile(join(config.repository, "native/newton-requirements.txt"))) } });
   if (r.exitCode !== 0) {
     publish(requestId, { kind: "step", id: "newton-usd", label, status: "failed", which: "candidate", detail: `exit ${r.exitCode}` });
