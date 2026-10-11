@@ -54,6 +54,7 @@ export class SolverStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN, lifecycleRules: [{ maxImageCount: 10 }],
     });
     const source = new assets.Asset(this, "BuildContext", { path: contextDir });
+    const physicsEngineTag = (JSON.parse(readFileSync(resolve("../.state/deploy/engine-context/engine-tags.json"), "utf8")) as Record<string, string>).physics;
     // Per-image tags from each image's own inputs (tools/package_solver.py): an FEA change never rebuilds CFD or CAM.
     const { fea: imageTag, cfd: cfdTag, cam: camTag } = JSON.parse(readFileSync(resolve(contextDir, "image-tags.json"), "utf8")) as Record<"fea" | "cfd" | "cam", string>;
     // Optional, explicit: an existing image in this repository whose inputs are known to equal the new tag's
@@ -65,18 +66,21 @@ export class SolverStack extends cdk.Stack {
       projectName: "pai-solver-image", description: "linux/amd64 build of the PAI FEA solver job image",
       source: codebuild.Source.s3({ bucket: source.bucket, path: source.s3ObjectKey }),
       environment: { buildImage: codebuild.LinuxBuildImage.STANDARD_7_0, computeType: codebuild.ComputeType.LARGE, privileged: true },
-      environmentVariables: { REPO: { value: repo.repositoryUri }, TAG: { value: imageTag }, CFD_TAG: { value: cfdTag }, CAM_TAG: { value: camTag },
+      environmentVariables: { REPO: { value: repo.repositoryUri }, TAG: { value: imageTag },
+        ENGINE_REPO: { value: `${this.account}.dkr.ecr.${this.region}.amazonaws.com/${SOLVER.engineRepository}` }, ENGINE_PHYSICS_TAG: { value: physicsEngineTag }, CFD_TAG: { value: cfdTag }, CAM_TAG: { value: camTag },
         CFD_REUSE: { value: reuse.cfd ?? "" }, CAM_REUSE: { value: reuse.cam ?? "" } },
       timeout: cdk.Duration.minutes(60), logging: { cloudWatch: { logGroup: buildLogs } },
       buildSpec: codebuild.BuildSpec.fromObject({
         version: "0.2",
         phases: {
-          pre_build: { commands: ["aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO%%/*}"] },
+          pre_build: { commands: ["aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${REPO%%/*}",
+            // The FEA image is FROM the physics engine image: build engine images first (solver_operator.py build-engines).
+            `aws ecr describe-images --repository-name ${SOLVER.engineRepository} --image-ids imageTag=$ENGINE_PHYSICS_TAG >/dev/null || { echo "engine image $ENGINE_PHYSICS_TAG missing: run build-engines first"; exit 1; }`] },
           build: { commands: [
             // Immutable tag per source hash: an existing image is never rebuilt or replaced.
             `if aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$TAG >/dev/null 2>&1; then echo "exists $TAG"; else `
-              + "docker build --platform linux/amd64 -f Dockerfile.solver --build-arg PAI_IMAGE_VERSION=$TAG -t $REPO:$TAG . && docker push $REPO:$TAG; fi",
-            "docker run --rm --network none --entrypoint /opt/physics/bin/python $REPO:$TAG -c \"import gmsh; print('gmsh', gmsh.__version__)\" || true",
+              + "docker build --platform linux/amd64 -f Dockerfile.solver --build-arg ENGINE_BASE=$ENGINE_REPO:$ENGINE_PHYSICS_TAG --build-arg PAI_IMAGE_VERSION=$TAG -t $REPO:$TAG . && docker push $REPO:$TAG; fi",
+            "docker run --rm --network none --entrypoint /opt/pai/tools/physics-1/bin/python $REPO:$TAG -c \"import gmsh; print('gmsh', gmsh.__version__)\" || true",
             // CFD image: FROM the digest-pinned OpenCFD OpenFOAM v2512 image (Dockerfile.cfd).
             `if aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$CFD_TAG >/dev/null 2>&1; then echo "exists $CFD_TAG"; `
               + `elif [ -n "$CFD_REUSE" ] && aws ecr describe-images --repository-name ${SOLVER.repository} --image-ids imageTag=$CFD_REUSE >/dev/null 2>&1; then docker buildx imagetools create -t $REPO:$CFD_TAG $REPO:$CFD_REUSE && echo "reused $CFD_REUSE as $CFD_TAG"; else `
@@ -92,6 +96,8 @@ export class SolverStack extends cdk.Stack {
     });
     repo.grantPullPush(project);
     project.addToRolePolicy(new iam.PolicyStatement({ actions: ["ecr:DescribeImages"], resources: [repo.repositoryArn] }));
+    project.addToRolePolicy(new iam.PolicyStatement({ actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability", "ecr:DescribeImages"],
+      resources: [`arn:aws:ecr:${this.region}:${this.account}:repository/${SOLVER.engineRepository}`] }));
 
     const jobRole = new iam.Role(this, "JobRole", { assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"), description: "Solver job: jobs/* of the solver bucket only" });
     jobs.grantReadWrite(jobRole, "jobs/*");
@@ -106,7 +112,7 @@ export class SolverStack extends cdk.Stack {
         image: ecs.ContainerImage.fromEcrRepository(repo, imageTag), cpu: 2, memory: cdk.Size.gibibytes(4),
         fargateCpuArchitecture: ecs.CpuArchitecture.X86_64, fargateOperatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
         assignPublicIp: true, jobRole, logging: ecs.LogDriver.awsLogs({ streamPrefix: "fea", logGroup: jobLogs }),
-        readonlyRootFilesystem: false, user: "1001",
+        readonlyRootFilesystem: false, user: "65534",
       }),
     });
 
