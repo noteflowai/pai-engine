@@ -16,7 +16,7 @@
                                      └─ AWS Backup：每日快照，保留 14 天
 ```
 
-独立 `t3.medium`（2 vCPU / 4 GiB）运行单个工作台，持久化卷 40 GiB，系统卷 16 GiB。只有现有 ALB 安全组可以访问 4317，未开放 SSH；运维通过 SSM。实例公网地址仅用于出站安装和 AWS/登录签名公钥访问，不作为用户入口。
+独立 `g6.xlarge`（4 vCPU / 16 GiB / NVIDIA L4，2026-10-11 由 `t3.medium` 改来；机型由 CDK context `instanceType` 指定，默认仍是 `t3.medium`）运行单个工作台和同机的 Strands Decider，持久化卷 60 GiB，系统卷 16 GiB。只有现有 ALB 安全组可以访问 4317，未开放 SSH；运维通过 SSM。实例公网地址仅用于出站安装和 AWS/登录签名公钥访问，不作为用户入口。
 
 Cognito 禁止自助注册，初始管理员由私人配置指定；初始化使用 `MessageAction=SUPPRESS`，不会发送邮件或邀请。密码由 Secrets Manager 生成并保存于 `pai-workbench/admin`，不进入代码、实例环境或文档。应用用 `aws-jwt-verify` 验证 ALB 签名、签发者、客户端、过期时间和主体，拒绝只伪造身份头的请求。生产 Origin 精确限定为 `https://pai.oneai.host`。
 
@@ -113,6 +113,8 @@ Codex / Claude 的回答按执行器规则总是"影响未知"。维护者在工
 数据位于 `/var/lib/pai/data/state`，单进程 SQLite WAL 数据库及同一卷上的原生文件共同快照。删除栈保留数据卷、备份 vault、登录用户池和管理员 Secret。运行实例的 systemd 服务失败后重启，并保留任务身份；EC2 状态与 ALB 不健康目标有 CloudWatch 告警，未配置外发通知。
 
 后续应用升级先验证并打包，再部署 CDK 中新的发布对象和精确 S3 读取授权，随后执行 `python3 tools/aws_operator.py apply-release`。脚本验证 SHA-256，在独立目录安装依赖、停止服务、原子切换 `/opt/pai/current` 并复核健康；失败时自动切回旧目录，不覆盖数据库或原生回执。原生工具版本更新另需重新验证和显式安装。
+
+GPU 与 Decider：`PAI_ROBOTS=1 PAI_DECIDER=1 python3 tools/aws_operator.py apply-release` 安装 NVIDIA 580 开源驱动（与当前内核匹配的预编译模块，不装新内核）、按哈希锁定的 Decider 运行时与固定版本模型（`tools/setup_decider.py`），并写入只监听 127.0.0.1:8801、离线加载模型的 `pai-decider.service`；只有 `nvidia-smi` 可用时才启动。**升级内核后必须装对应的 `linux-modules-nvidia-580-server-open-<内核>`**，否则 Decider 失效（工作台照常运行，只是不分诊）。修改机型时 CloudFormation 停机再启动同一实例（实例 ID、卷和 ALB 目标不变），停机前确认无运行中的原生任务；实测停机再启动约 1.5 分钟，之后安装 GPU 运行时约 10 分钟，最后重启一次服务。
 
 本环境的初始启动包固定在 `infra/cdk.json` 的 `bootstrapReleaseHash` / `bootstrapAssetKey`，不要随应用发布修改它们，也不要删除对应 S3 对象。这样前端更新不会因 EC2 UserData 变化而停止或替换实例；当前发布包由 `ReleaseHash` / `ReleaseKey` 输出指定。新建其他环境应选择经过验证的初始包。AMI/实例替换必须先确认备份，并在同一可用区重新连接保留卷；不要并发挂载 SQLite 卷。
 
