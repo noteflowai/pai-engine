@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Config } from "./config.js";
 import { DomainError } from "./domain.js";
 import type { Store } from "./store.js";
+import type { Define } from "./kernel/actions.js";
 import { decideRun, runData, startRun, type WorkflowRun } from "./artifacts/workflows.js";
 import { catalog, checkQuota, offeredWorkflow, offerWorkflow, revokeOffering, TenantRunRequest, tenantRun, tenantUsage, type Offering, type Tenant } from "./tenants.js";
 
@@ -27,16 +28,16 @@ const view = (r: WorkflowRun) => ({ id: r.id, workflowId: r.workflowId, state: r
   nodes: Object.fromEntries(Object.entries(r.nodes).map(([id, n]) => [id, { state: n.state, status: n.status ?? null, outputs: n.outputs ? Object.keys(n.outputs) : [], usage: n.usage ?? null }])) });
 
 export function tenantRoutes(app: FastifyInstance, d: { store: Store; config: Config; actor: (h: Record<string, unknown>) => string; executeNative: Execute;
-  tenant: (raw: unknown) => Tenant | undefined; track: (job: Promise<unknown>) => void }) {
-  const { store, config } = d;
+  tenant: (raw: unknown) => Tenant | undefined; track: (job: Promise<unknown>) => void; action: Define }) {
+  const { store, config, action } = d;
   const tenants = config.tenants ?? [];
   const me = (raw: unknown) => { const t = d.tenant(raw); if (!t) throw new DomainError("TENANT_REQUIRED", "Tenant credentials required", 403); return t; };
 
   // Maintainer side.
   app.get("/api/v1/tenants", async () => ({ tenants: tenants.map(t => ({ id: t.id, maxConcurrentRuns: t.maxConcurrentRuns, maxRunsPerDay: t.maxRunsPerDay, usage: tenantUsage(store, t) })) }));
   app.get("/api/v1/offerings", async () => store.list<Offering>("offering").reverse());
-  app.post("/api/v1/offerings", async request => offerWorkflow(store, tenants, request.body, d.actor(request.headers)));
-  app.post("/api/v1/offerings/:id/revoke", async request => revokeOffering(store, RunId.parse(request.params).id, request.body, d.actor(request.headers)));
+  action("offerWorkflow", async ({ request }) => offerWorkflow(store, tenants, request.body, d.actor(request.headers)));
+  action("revokeOffering", async ({ request }) => revokeOffering(store, RunId.parse(request.params).id, request.body, d.actor(request.headers)));
 
   // Tenant side (internal paths; reachable from outside only as /api/agent/v1/tenant/...).
   app.get("/api/v1/tenant/catalog", async request => catalog(store, me(request.raw)));
@@ -45,7 +46,7 @@ export function tenantRoutes(app: FastifyInstance, d: { store: Store; config: Co
     const t = me(request.raw);
     return { runs: store.list<WorkflowRun>("workflow-run").filter(r => r.tenant === t.id).reverse().slice(0, 50).map(view) };
   });
-  app.post("/api/v1/tenant/runs", async (request, reply) => {
+  action("startTenantRun", async ({ request, reply }) => {
     const t = me(request.raw), req = TenantRunRequest.parse(request.body);
     offeredWorkflow(store, t, req.workflow);
     // A repeated request returns its run without counting against the quota again.
@@ -56,7 +57,7 @@ export function tenantRoutes(app: FastifyInstance, d: { store: Store; config: Co
   app.get("/api/v1/tenant/runs/:id", async request => view(tenantRun(store, me(request.raw), RunId.parse(request.params).id)));
   app.get("/api/v1/tenant/runs/:id/data", async request =>
     runData(config, tenantRun(store, me(request.raw), RunId.parse(request.params).id), DataQuery.parse(request.query)));
-  app.post("/api/v1/tenant/runs/:id/decisions", async (request, reply) => {
+  action("decideTenantRunStep", async ({ request, reply }) => {
     const t = me(request.raw), run = tenantRun(store, t, RunId.parse(request.params).id);
     // Continuing runs native nodes: only while the workflow is still offered and its artifacts released.
     offeredWorkflow(store, t, run.workflowId);

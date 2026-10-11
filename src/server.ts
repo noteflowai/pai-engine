@@ -16,6 +16,7 @@ import { buildInfo } from "./build-info.js";
 import { deciderConfigured, suggestLane } from "./decider.js";
 import { tenantOfClient, type Tenant } from "./tenants.js";
 import { tenantRoutes } from "./tenant-routes.js";
+import { actionRuntime } from "./kernel/actions.js";
 import { makeBundle, verifyBundle } from "./bundle.js";
 import { buildPackage, MAX_PACKAGE_BYTES, PackageSubmission, ReleasePackage, signer, verifySealedPackage } from "./signing.js";
 import { archive, timestamp, type Archive } from "./seal.js";
@@ -71,6 +72,11 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   const authenticated = authentication(config), agentAuthenticated = agentAuthentication(config);
   const principals = new WeakMap<object, AgentPrincipal>();
   const tenantOf = new WeakMap<object, Tenant>();
+  // Writes are ontology actions: the runtime authorizes the caller against the action's submitters and checks parameters.
+  const action = actionRuntime(app, raw => {
+    const tenant = tenantOf.get(raw as object), principal = principals.get(raw as object);
+    return tenant ? { kind: "tenant", tenant: tenant.id } : principal?.scope ? { kind: "agent", scope: principal.scope } : { kind: "maintainer" };
+  });
   const activeJobs = new Set<Promise<unknown>>();
   app.addHook("preClose", async () => { for (const end of [...streams]) end(); await Promise.allSettled([...activeJobs]); });
   app.addHook("onClose", async () => { store.close(); await release(); });
@@ -177,8 +183,8 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   // The auth hook has already verified the ALB-signed token and that its subject equals this header.
   const actor = (headers: Record<string, unknown>) => config.albAuth && typeof headers["x-amzn-oidc-identity"] === "string"
     ? `cognito:${String(headers["x-amzn-oidc-identity"]).slice(0, 64)}` : "local-maintainer";
-  artifactRoutes(app, { store, config, actor, executeNative, track: job => { const t = job.catch(() => undefined); activeJobs.add(t); void t.finally(() => activeJobs.delete(t)); } });
-  tenantRoutes(app, { store, config, actor, executeNative, tenant: raw => tenantOf.get(raw as object),
+  artifactRoutes(app, { store, config, actor, executeNative, action, track: job => { const t = job.catch(() => undefined); activeJobs.add(t); void t.finally(() => activeJobs.delete(t)); } });
+  tenantRoutes(app, { store, config, actor, executeNative, action, tenant: raw => tenantOf.get(raw as object),
     track: job => { const t = job.catch(() => undefined); activeJobs.add(t); void t.finally(() => activeJobs.delete(t)); } });
   ontologyRoutes(app, store, config, JSON.parse(await readFile(join(config.repository, "tools/runtime-pins.json"), "utf8")), raw => Boolean(agentRoute(raw)));
   app.get("/api/projects/:id/ai-track-record", async request => trackRecord(store, workbench.project(paramId(request.params)).id));
@@ -188,11 +194,11 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     const p = workbench.project(paramId(request.params));
     return admission(store, p, lifecycle(p), q.kind, q.runId);
   });
-  app.post("/api/projects/:id/releases", async request => {
+  action("createReleaseCandidate", async ({ request }) => {
     const p = workbench.project(paramId(request.params));
     return createRelease(store, p, lifecycle(p), request.body, actor(request.headers));
   });
-  app.patch("/api/projects/:id/releases/:releaseId", async request => {
+  action("decideRelease", async ({ request }) => {
     const p = workbench.project(paramId(request.params));
     return decideRelease(store, p, lifecycle(p), paramId(request.params, "releaseId"), request.body, actor(request.headers));
   });
@@ -252,10 +258,10 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   }
   app.get("/api/signing/public-key", async () => { const s = await signer(config); return { keyId: s.keyId, algorithm: s.algorithm, publicKeyPem: s.publicKeyPem }; });
   // Packages carry base64 native files (FEA results are several MB): this route alone accepts up to the package cap.
-  app.post("/api/packages/verify", { bodyLimit: Math.ceil(MAX_PACKAGE_BYTES * 1.4) + 1_000_000 }, async request => {
+  action("verifyReleasePackage", async ({ request }) => {
     const body = PackageSubmission.parse(request.body);
     return verifySealedPackage(body.package, body.trustedPublicKeyPem, config.tsaCaFile);
-  });
+  }, { bodyLimit: Math.ceil(MAX_PACKAGE_BYTES * 1.4) + 1_000_000 });
   app.get("/api/dataset/solver", async request => {
     const { domain } = z.object({ domain: z.enum(["structural-fea", "aero-rans"]).optional() }).parse(request.query);
     const d = solverDataset(store);
@@ -294,18 +300,18 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
       controllerMode: "native text proposal only when configured; otherwise read-only accounting" },
   }; });
   app.get("/api/tools", async () => toolCatalog);
-  app.post("/api/projects", async request => workbench.createProject(request.body));
-  app.patch("/api/projects/:id", async request => {
+  action("createTask", async ({ request }) => workbench.createProject(request.body));
+  action("reviseRequirements", async ({ request }) => {
     const input = ReviseProject.parse(request.body);
     const { expectedRevision, ...project } = input;
     const updated = workbench.updateProject(paramId(request.params), expectedRevision, project);
     supersedeForRevision(store, updated, actor(request.headers));
     return updated;
   });
-  app.post("/api/projects/:id/reviews", async (request, reply) =>
+  action("runRecordedReview", async ({ request, reply }) =>
     executeNative(reply, request.body, "review", "runs", () => workbench.runReview(paramId(request.params), request.body)));
-  app.post("/api/projects/:id/proposals", async request => propose(store, config, workbench.project(paramId(request.params)), request.body));
-  app.post("/api/projects/:id/scenes", async (request, reply) =>
+  action("recordProposal", async ({ request }) => propose(store, config, workbench.project(paramId(request.params)), request.body));
+  action("runScene", async ({ request, reply }) =>
     executeNative(reply, request.body, "scene-review", "scenes", () => reviewScene(store, config, workbench.project(paramId(request.params)), request.body, live)));
   app.get("/api/scenes/:id/stages/:which/:index", async (request, reply) => {
     const p = z.object({ id: Id, which: z.enum(["baseline", "candidate"]), index: z.coerce.number().int().min(1).max(16) }).parse(request.params);
@@ -316,13 +322,13 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     if (sha256(content) !== stage.sha256) throw new DomainError("SCENE_FILE_CHANGED", "Stage geometry differs from its recorded digest", 422);
     return reply.type("model/gltf-binary").header("X-PAI-Evidence", "presentation-stage").send(content);
   });
-  app.post("/api/projects/:id/cad", async (request, reply) => {
+  action("runCadReview", async ({ request, reply }) => {
     await precheckCad(store, config, request.body);
     return executeNative(reply, request.body, "cad-review", "cad", () => reviewCad(store, config, workbench.project(paramId(request.params)), request.body, live));
   });
-  app.post("/api/projects/:id/cad-sweeps", async (request, reply) =>
+  action("runSweep", async ({ request, reply }) =>
     executeNative(reply, request.body, "cad-sweep", "cad-sweeps", () => sweepCad(store, config, workbench.project(paramId(request.params)), request.body, live)));
-  app.post("/api/projects/:id/cad-optimizations", async (request, reply) =>
+  action("runOptimization", async ({ request, reply }) =>
     executeNative(reply, request.body, "cad-optimize", "cad-optimizations", () => optimizeCad(store, config, workbench.project(paramId(request.params)), request.body, live)));
   app.get("/api/cad-optimizations/:id", async (request, reply) => {
     const run = store.get<CadOptimization>("cad-optimize", paramId(request.params));
@@ -335,7 +341,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     return nativeResponse(sweep, reply, "cad-sweeps");
   });
   // Static policy check for the code editor; parses only, never executes.
-  app.post("/api/cad/code-check", async request => {
+  action("checkCadCode", async ({ request }) => {
     const { code } = CadCodeCheck.parse(request.body);
     if (!config.cadquery) throw new DomainError("CAD_NOT_CONFIGURED", "CadQuery 未配置", 503);
     const violations = await checkCadCode(config, code);
@@ -352,7 +358,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     if (!cad) throw new DomainError("NOT_FOUND", "CAD review not found", 404);
     return { cadReviewId: cad.id, characteristics: inspectionPlan(cad) };
   });
-  app.post("/api/cad/:id/inspections", async request => recordInspection(store, paramId(request.params), request.body, actor(request.headers)));
+  action("recordInspection", async ({ request }) => recordInspection(store, paramId(request.params), request.body, actor(request.headers)));
   app.get("/api/cad/:id", async (request, reply) => {
     const cad = store.get<CadReview>("cad-review", paramId(request.params));
     if (!cad) throw new DomainError("NOT_FOUND", "CAD review not found", 404);
@@ -372,7 +378,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     else if (!p.file.endsWith(".glb") && !p.file.endsWith(".png")) reply.header("Content-Disposition", `attachment; filename="${p.which}-${p.file}"`);
     return reply.type(types[p.file] ?? "text/plain").send(content);
   });
-  app.post("/api/projects/:id/aero", async (request, reply) =>
+  action("runAero", async ({ request, reply }) =>
     executeNative(reply, request.body, "aero-review", "aero", () => reviewAero(store, config, workbench.project(paramId(request.params)), request.body, live)));
   app.get("/api/aero/:id/files/:which/:file", async (request, reply) => {
     const p = z.object({ id: Id, which: z.enum(["baseline", "candidate"]), file: z.enum(AERO_FILES) }).parse(request.params);
@@ -420,18 +426,18 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     request.raw.on("close", end);
     if (subscription.done) end();
   });
-  app.post("/api/projects/:id/factory-criteria", async request =>
+  action("freezeFactoryCriteria", async ({ request }) =>
     freezeFactoryCriteria(store, workbench.project(paramId(request.params)), request.body));
-  app.post("/api/projects/:id/factory-reviews", async request =>
+  action("runFactoryReview", async ({ request }) =>
     reviewFactory(store, config.repository, workbench.project(paramId(request.params)), request.body, live));
   app.get("/api/factory-reviews/:id", async request => {
     const review = store.get<FactoryReview>("factory-review", paramId(request.params));
     if (!review) throw new DomainError("NOT_FOUND", "Factory review not found", 404);
     return review;
   });
-  app.post("/api/assistant/plans", async request => createPlan(store, request.body, Boolean(config.controllerEntrypoint && config.controllerDatabase),
+  action("planFromRules", async ({ request }) => createPlan(store, request.body, Boolean(config.controllerEntrypoint && config.controllerDatabase),
     deciderConfigured(config) ? message => suggestLane(config, message) : undefined));
-  app.post("/api/assistant/ai", async (request, reply) =>
+  action("planFromModel", async ({ request, reply }) =>
     executeNative(reply, request.body, "assistant-plan", "assistant/plans", async () => { const r = await createAiPlan(store, config, request.body, lifecycle, live); return { ...r, state: r.state ?? "done" }; }));
   app.get("/api/assistant/plans/:id", async (request, reply) => {
     const plan = store.get<AssistantPlan & { state?: string }>("assistant-plan", paramId(request.params));
@@ -451,28 +457,28 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   });
   // Bounded autonomy: a maintainer grants native runs (never approval/release/feedback); plans then run without a click.
   const autonomyDeps = { store, config, live, project: (id: string) => workbench.project(id), lifecycle };
-  app.post("/api/projects/:id/autonomy-grants", async request => createGrant(store, workbench.project(paramId(request.params)), request.body, actor(request.headers)));
+  action("grantAutonomy", async ({ request }) => createGrant(store, workbench.project(paramId(request.params)), request.body, actor(request.headers)));
   app.get("/api/autonomy-grants", async request => {
     const q = z.object({ projectId: Id }).strict().parse(request.query);
     return store.list<{ projectId: string }>("autonomy-grant").filter(g => g.projectId === q.projectId);
   });
-  app.post("/api/autonomy-grants/:id/revoke", async request => revokeGrant(store, paramId(request.params), actor(request.headers)));
-  app.post("/api/assistant/plans/:id/autonomous-runs", async request => {
+  action("revokeAutonomy", async ({ request }) => revokeGrant(store, paramId(request.params), actor(request.headers)));
+  action("runUnderGrant", async ({ request }) => {
     const principal = principals.get(request.raw);
     return runUnderGrant(autonomyDeps, paramId(request.params), request.body, principal ? `agent:${principal.clientId}${principal.session ? `:${principal.session}` : ""}` : actor(request.headers));
   });
-  app.post("/api/projects/:id/autopilot", async (request, reply) =>
+  action("startAutopilot", async ({ request, reply }) =>
     executeNative(reply, request.body, "autopilot", "autopilots", () => runAutopilot(autonomyDeps, workbench.project(paramId(request.params)), request.body, actor(request.headers))));
   app.get("/api/autopilots/:id", async (request, reply) => {
     const a = store.get<Autopilot>("autopilot", paramId(request.params));
     if (!a) throw new DomainError("NOT_FOUND", "Autopilot not found", 404);
     return nativeResponse(a, reply, "autopilots");
   });
-  app.post("/api/assistant/external-plans", async request => createExternalPlan(store, config, request.body, lifecycle, principals.get(request.raw)));
-  app.post("/api/assistant/plans/:id/reconciliation", async request => reconcileAi(store, config, paramId(request.params), request.body, actor(request.headers)));
-  app.post("/api/assistant/plans/:id/preflight", async request =>
+  action("planFromAgent", async ({ request }) => createExternalPlan(store, config, request.body, lifecycle, principals.get(request.raw)));
+  action("reconcilePlan", async ({ request }) => reconcileAi(store, config, paramId(request.params), request.body, actor(request.headers)));
+  action("preflightPlan", async ({ request }) =>
     preflightPlan(store, paramId(request.params), PreflightStep.parse(request.body).planId));
-  app.post("/api/assistant/plans/:id/confirmations", async request => confirmPlan(store, paramId(request.params), request.body));
+  action("confirmPlan", async ({ request }) => confirmPlan(store, paramId(request.params), request.body));
   app.get("/api/scenes/:id", async (request, reply) => {
     const scene = store.get<SceneReview>("scene-review", paramId(request.params));
     if (!scene) throw new DomainError("NOT_FOUND", "Scene not found", 404);
@@ -489,16 +495,16 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     return reply.type(types[p.file]).send(content);
   });
   app.get("/api/runs/:id", async (request, reply) => nativeResponse(workbench.review(paramId(request.params)), reply, "runs"));
-  app.post("/api/feedback", async request => workbench.createFeedback(request.body));
-  app.patch("/api/feedback/:id", async request => workbench.transitionFeedback(paramId(request.params), request.body));
-  app.post("/api/campaigns", async request => workbench.createCampaign(request.body));
-  app.post("/api/events", async request => workbench.trackEvent(request.body));
+  action("recordFeedback", async ({ request }) => workbench.createFeedback(request.body));
+  action("transitionFeedback", async ({ request }) => workbench.transitionFeedback(paramId(request.params), request.body));
+  action("draftCampaign", async ({ request }) => workbench.createCampaign(request.body));
+  action("recordTrialEvent", async ({ request }) => workbench.trackEvent(request.body));
   app.get("/api/runs/:id/bundle", async (request, reply) => {
     const id = paramId(request.params);
     reply.header("Content-Disposition", `attachment; filename="pai-review-${id}.json"`);
     return makeBundle(workbench.review(id));
   });
-  app.post("/api/bundles/verify", async request => {
+  action("verifyBundle", async ({ request }) => {
     const { bundle: _, ...result } = verifyBundle(request.body); return result;
   });
   app.get("/api/runs/:id/media/:candidate/:seed/:view", async (request, reply) => {
