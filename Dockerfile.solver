@@ -1,26 +1,18 @@
 # syntax=docker/dockerfile:1.7
-# PAI solver job image for AWS Batch on Fargate (linux/amd64): one FEA point per job (native/solver_job.py).
-# Same native scripts and pinned versions as the local physics lane:
-#   CadQuery 2.8 / OCCT 7.9 (native/cadquery-runtime-requirements.txt, --require-hashes)
-#   Gmsh 4.15.2 + NumPy + boto3 (native/solver-requirements.txt, --require-hashes, constrained to the physics lock)
-#   CalculiX ccx 2.21 from the Ubuntu 24.04 archive (apt verifies the signed index); the job re-checks the version.
-# No credentials in the image; the job role grants only the jobs/ prefix of the solver bucket.
-ARG BASE=public.ecr.aws/docker/library/ubuntu@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
-FROM ${BASE}
-ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 PIP_DISABLE_PIP_VERSION_CHECK=1 OMP_NUM_THREADS=2
-RUN useradd --uid 1001 --create-home --home-dir /home/pai --shell /usr/sbin/nologin pai \
- && apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates python3 python3-venv calculix-ccx \
-      libgl1 libegl1 libglu1-mesa libopengl0 libx11-6 libxrender1 libxext6 libxi6 libxkbcommon0 libsm6 libxcursor1 libxft2 libxinerama1 libfontconfig1 libgomp1 \
- && rm -rf /var/lib/apt/lists/* && ccx -v 2>&1 | grep -q "Version 2.21" && install -d -m 0755 /opt/pai /opt/pai/native
-COPY --chmod=0644 native/cadquery-runtime-requirements.txt native/solver-requirements.txt /opt/pai/
-RUN python3 -m venv /opt/cadquery && /opt/cadquery/bin/python -m pip install -q --no-cache-dir --no-input --require-hashes --no-deps --only-binary :all: \
-      -r /opt/pai/cadquery-runtime-requirements.txt && /opt/cadquery/bin/python -W ignore -c "import cadquery as cq; assert cq.__version__ == '2.8.0'" \
- && python3 -m venv /opt/physics && /opt/physics/bin/python -m pip install -q --no-cache-dir --no-input --require-hashes --no-deps --only-binary :all: \
-      -r /opt/pai/solver-requirements.txt && /opt/physics/bin/python -c "import gmsh, numpy, boto3; assert gmsh.__version__ == '4.15.2'" \
- && find /opt -name __pycache__ -prune -exec rm -rf {} + && rm -rf /opt/*/lib/python3*/site-packages/pip
+# PAI FEA job image for AWS Batch on Fargate (linux/amd64): one FEA point per job (native/solver_job.py).
+# Built FROM the physics engine image (ADR 0004; engines/Dockerfile.physics, pinned by its immutable tag and recorded
+# digest), so a Batch point and a point on the workbench host run the very same CadQuery / Gmsh / CalculiX toolchain.
+# This layer only adds the job's scripts (the job has no release to mount them from). No credentials in the image;
+# the job role grants only the jobs/ prefix of the solver bucket.
+ARG ENGINE_BASE
+FROM ${ENGINE_BASE}
+USER 0:0
 COPY --chmod=0644 native/cad_point.py native/cad_recipe.py native/cad_bearing.py native/cad_checks.py native/fea_core.py native/fea_bracket.py native/fea_pillow.py native/solver_job.py /opt/pai/native/
+RUN /opt/pai/tools/calculix-2.21/ccx -v 2>&1 | grep -q "Version 2.21" \
+ && /opt/pai/tools/physics-1/bin/python -c "import gmsh, numpy, boto3; assert gmsh.__version__ == '4.15.2'" \
+ && /opt/pai/tools/cadquery-2.8.0/bin/python -W ignore -c "import cadquery as cq; assert cq.__version__ == '2.8.0'"
 ARG PAI_IMAGE_VERSION=dev
-ENV PAI_IMAGE_VERSION=${PAI_IMAGE_VERSION} PAI_CADQUERY_PYTHON=/opt/cadquery/bin/python PAI_CCX=/usr/bin/ccx HOME=/home/pai
-USER pai
-WORKDIR /home/pai
-ENTRYPOINT ["/opt/physics/bin/python", "-I", "/opt/pai/native/solver_job.py"]
+ENV PAI_IMAGE_VERSION=${PAI_IMAGE_VERSION} PAI_CADQUERY_PYTHON=/opt/pai/tools/cadquery-2.8.0/bin/python PAI_CCX=/opt/pai/tools/calculix-2.21/ccx OMP_NUM_THREADS=2
+USER 65534:65534
+WORKDIR /tmp
+ENTRYPOINT ["/opt/pai/tools/physics-1/bin/python", "-I", "/opt/pai/native/solver_job.py"]

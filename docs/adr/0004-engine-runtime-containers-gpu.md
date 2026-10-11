@@ -32,6 +32,7 @@
 - 第 4 步（cad、physics 进容器）：physics 镜像同时装 CadQuery（寻优与 FEA 每个点重新生成几何，和宿主机一致）。输入文件里交给引擎的工具路径（CalculiX、CadQuery 解释器）由 `enginePath` 换成引擎看到的路径；回执里这些工具的摘要在容器中记为镜像摘要（`toolDigest`），不再记一个没被执行的宿主机文件。所有原生回执带 `runtime`。机器人仿真把末端零件 STL 声明为只读输入。
 - 第 5 步（GPU 容器，2026-10-11 用户批准安装 NVIDIA Container Toolkit）：宿主机从 NVIDIA 官方签名源安装 `nvidia-container-toolkit-base`（只要 `nvidia-ctk`；版本与密钥指纹固定在 `tools/runtime-pins.json`），每次发布重新生成 CDI。podman 4.9 只认 CDI ≤ 0.6.0，而 0.7.0 只因 `/dev/dri` 的 `additionalGids` 才需要，单 uid 映射下本就无法应用，所以写成去掉它的 0.6.0 JSON。CDI 钩子要在容器内建驱动库软链接和加载器缓存，因此 GPU 容器保留可写但一次性的根文件系统（仍 `--rm`、无网络、无能力）；其余容器保持只读根。引擎在容器里拿到 `PAI_GPU=1`：Blender Cycles 用 OptiX（否则 CUDA，再否则 CPU），Newton 用 Warp CUDA，各自记录实际设备（Blender 写进日志 `PAI_RENDER_DEVICE`，Newton 写进 `newton.json` 的 `device`）。本机验证：`test:blender`、`test:plant`、`test:robot`、`test:cad` 在 GPU 容器里通过，Blender 10 次渲染都用 OptiX，Newton 在 CUDA 上 FK 偏差 3.4e-7 m（CPU 4.5e-7 m，容差 1e-4），所有结论与 CPU 进程后端相同（通道 2.08 → 2.48 m、节拍 5.897 → 4.598 s）。
 - 第 6 步（Strands Robots 与 Decider 进容器）：robots 引擎在容器后端时直接以容器为隔离边界运行交叉校验（无网络、只挂资产与本次目录、脚本自己固定环境），不再套 bubblewrap；记录 `isolation: engine-container`。Decider 新增运行时镜像（`engines/Dockerfile.decider`，`PAI_DECIDER_RUNTIME_ONLY=1`：模型不进镜像，仍是数据卷上按版本固定的离线模型，挂载进容器）；`pai-decider.service` 同名、同端口，改为 rootless podman 前台运行该镜像（共享宿主机网络命名空间以只监听 127.0.0.1，GPU 经 CDI）。
+- 第 7 步（Batch 与宿主机同一工具链）：FEA 作业镜像改为 `FROM` physics 引擎镜像（按不可变标签，其标签计入 FEA 标签），只加作业脚本，以 nobody 运行；寻优在 Batch 上的每个点与宿主机上的单次 FEA 用的是同一套 CadQuery / Gmsh / CalculiX 层。CFD（OpenFOAM 官方镜像）与 CAM（FreeCAD）只在 Batch 上运行，保持各自镜像。
 
 ## 代价
 
