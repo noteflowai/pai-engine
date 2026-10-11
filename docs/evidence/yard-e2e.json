@@ -1,0 +1,245 @@
+{
+ "schema": "pai-yard-e2e-1",
+ "checkedAt": "2026-10-11T02:14:09.321Z",
+ "result": "passed",
+ "synthetic": true,
+ "artifact": {
+  "id": "yard-admission@1.0.0",
+  "digest": "6b61826ac375b99425612f6129306ee4540d32c7dc30ac031a069ecca5df313a",
+  "benchmark": {
+   "schema": "pai-yard-benchmark-1",
+   "seed": 7,
+   "synthetic": true,
+   "expectations": {
+    "normalBothVerified": true,
+    "normalAtLeastBaseline": true,
+    "replay": true,
+    "tamperedRejected": true,
+    "peakBothVerified": true,
+    "peakAtLeastBaseline": true,
+    "incompatibleTurnedAway": true
+   },
+   "comparison": {
+    "normal": {
+     "trucks": 24,
+     "cpSat": {
+      "status": "partial",
+      "admitted": 23,
+      "turnedAway": [
+       "T24"
+      ],
+      "priorityAdmitted": 37,
+      "waitingMin": 471,
+      "onSiteMin": 1453,
+      "lastDeparture": 466,
+      "proven": false,
+      "seconds": 39.545
+     },
+     "firstComeFirstServed": {
+      "status": "partial",
+      "admitted": 14,
+      "turnedAway": [
+       "T03",
+       "T09",
+       "T11",
+       "T16",
+       "T18",
+       "T20",
+       "T21",
+       "T22",
+       "T23",
+       "T24"
+      ],
+      "priorityAdmitted": 20,
+      "waitingMin": 290,
+      "onSiteMin": 1720,
+      "lastDeparture": 411
+     }
+    },
+    "peak": {
+     "trucks": 40,
+     "cpSat": {
+      "status": "partial",
+      "admitted": 15,
+      "turnedAway": [
+       "T02",
+       "T04",
+       "T05",
+       "T07",
+       "T08",
+       "T09",
+       "T10",
+       "T11",
+       "T12",
+       "T13",
+       "T14",
+       "T15",
+       "T16",
+       "T17",
+       "T18",
+       "T19",
+       "T20",
+       "T22",
+       "T23",
+       "T25",
+       "T27",
+       "T30",
+       "T32",
+       "T37",
+       "T38"
+      ],
+      "priorityAdmitted": 34,
+      "waitingMin": 258,
+      "onSiteMin": 1312,
+      "lastDeparture": 242,
+      "proven": false,
+      "seconds": 44.558
+     },
+     "firstComeFirstServed": {
+      "status": "partial",
+      "admitted": 11,
+      "turnedAway": [
+       "T01",
+       "T03",
+       "T04",
+       "T05",
+       "T06",
+       "T07",
+       "T08",
+       "T09",
+       "T11",
+       "T12",
+       "T14",
+       "T15",
+       "T16",
+       "T17",
+       "T18",
+       "T20",
+       "T22",
+       "T25",
+       "T26",
+       "T27",
+       "T28",
+       "T29",
+       "T31",
+       "T32",
+       "T33",
+       "T35",
+       "T38",
+       "T39",
+       "T40"
+      ],
+      "priorityAdmitted": 17,
+      "waitingMin": 359,
+      "onSiteMin": 1121,
+      "lastDeparture": 232
+     }
+    }
+   },
+   "scope": "Synthetic instances; a comparison with first-come-first-served, not a claim of optimality or production benefit."
+  }
+ },
+ "run": {
+  "id": "f5756b01-64f8-41d5-a0b5-c3dc9648f3dd",
+  "state": "succeeded",
+  "verify": "valid-schedule",
+  "usage": {
+   "wallSeconds": 44.186,
+   "cpuSeconds": 44.706,
+   "maxRssKb": 110172,
+   "storageBytes": 4208
+  }
+ },
+ "peak": {
+  "trucks": 40,
+  "cpSat": {
+   "admitted": 15,
+   "turnedAway": [
+    "T02",
+    "T04",
+    "T05",
+    "T07",
+    "T08",
+    "T09",
+    "T10",
+    "T11",
+    "T12",
+    "T13",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T19",
+    "T20",
+    "T22",
+    "T23",
+    "T25",
+    "T27",
+    "T30",
+    "T32",
+    "T37",
+    "T38"
+   ],
+   "priorityAdmitted": 34,
+   "waitingMin": 258,
+   "onSiteMin": 1312,
+   "lastDeparture": 242,
+   "status": "partial",
+   "solver": {
+    "name": "or-tools cp-sat",
+    "proven": false,
+    "phases": [
+     "FEASIBLE",
+     "FEASIBLE"
+    ],
+    "objective": {
+     "admittedScore": 34,
+     "secondary": 1851
+    },
+    "replayable": true,
+    "strategy": "deterministic",
+    "deterministicBudget": 15
+   }
+  },
+  "firstComeFirstServed": {
+   "admitted": 11,
+   "turnedAway": [
+    "T01",
+    "T03",
+    "T04",
+    "T05",
+    "T06",
+    "T07",
+    "T08",
+    "T09",
+    "T11",
+    "T12",
+    "T14",
+    "T15",
+    "T16",
+    "T17",
+    "T18",
+    "T20",
+    "T22",
+    "T25",
+    "T26",
+    "T27",
+    "T28",
+    "T29",
+    "T31",
+    "T32",
+    "T33",
+    "T35",
+    "T38",
+    "T39",
+    "T40"
+   ],
+   "priorityAdmitted": 17,
+   "waitingMin": 359,
+   "onSiteMin": 1121,
+   "lastDeparture": 232,
+   "status": "partial"
+  }
+ }
+}

@@ -7,15 +7,14 @@
  * Verifier: native/logistics_verify.py, standard library only, sharing no code with the solver; a plan is usable only
  * when it passes. Benchmarks are synthetic and labelled; they show behaviour and correctness, not production value.
  */
-import { readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { z } from "zod";
 import { command, writePrivate } from "../adapters.js";
 import type { Config } from "../config.js";
 import { DomainError, sha256 } from "../domain.js";
 import type { ArtifactAdapter, ArtifactManifest, OperationResult, RunContext } from "./contract.js";
+import { lockVersions, materialise, sourceCommit } from "./native-artifact.js";
 
 const FILES = ["logistics_solve.py", "logistics_verify.py", "logistics_generate.py", "logistics-requirements.txt"] as const;
 const LIMITS = { maxOrders: 500, maxVehicles: 100, maxTimeLimitSeconds: 120 };
@@ -48,31 +47,7 @@ const SCHEMAS: Record<string, z.ZodType> = { "pai-logistics-problem-1": Problem,
 
 const issues = (r: { success: boolean; error?: z.ZodError }) => r.success ? [] : r.error!.issues.slice(0, 8).map(i => `${i.path.join(".") || "(root)"}: ${i.message}`);
 
-function lockVersions(lock: string) {
-  return Object.fromEntries([...lock.matchAll(/^([a-z0-9-]+)==([^\s\\]+)/gim)].map(m => [m[1].toLowerCase(), m[2]]));
-}
-function sourceCommit(repository: string): string | null {
-  // A packaged release records its clean source commit (tools/package_release.py); a checkout asks git.
-  const recorded = (() => { try { return readFileSync(join(repository, ".source-commit"), "utf8").trim(); } catch { return ""; } })();
-  if (/^[a-f0-9]{40}$/.test(recorded)) return recorded;
-  try {
-    // Only the repository's own commit; never one of a surrounding repository.
-    const top = execFileSync("git", ["-C", repository, "rev-parse", "--show-toplevel"], { encoding: "utf8", timeout: 5000 }).trim();
-    if (top !== repository) return null;
-    const dirty = execFileSync("git", ["-C", repository, "status", "--porcelain", "--", "native/"], { encoding: "utf8", timeout: 5000 }).trim();
-    return dirty ? null : execFileSync("git", ["-C", repository, "rev-parse", "HEAD"], { encoding: "utf8", timeout: 5000 }).trim();
-  } catch { return null; }
-}
 
-async function materialise(ctx: RunContext) {
-  const code = join(ctx.directory, "code");
-  await mkdir(code, { recursive: true, mode: 0o700 });
-  for (const [name, bytes] of Object.entries(ctx.files)) {
-    if (sha256(bytes) !== ctx.manifest.files[name]) throw new DomainError("ARTIFACT_FILE", `File ${name} differs from the manifest`, 422);
-    await writePrivate(join(code, name), bytes);
-  }
-  return code;
-}
 
 async function python(config: Config, args: string[], cwd: string, timeoutMs: number) {
   const r = await command(config.logisticsPython!, ["-I", ...args], cwd, undefined, timeoutMs);

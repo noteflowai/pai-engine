@@ -1008,3 +1008,40 @@ test("artifact platform: build, benchmark, release, configure a workflow, run wi
   const cross = await page.request.post("/api/v1/artifacts", { data: { adapter: "logistics-pdptw", version: "9.9.9" }, headers: { origin: "https://attacker.example" } });
   expect(cross.status()).toBe(403);
 });
+
+test("site admission artifact: CP-SAT benchmark, release, sample workflow, peak run with the real solver, controller approval, phone width", { tag: "@cam" }, async ({ page }, testInfo) => {
+  // Tagged with the long-running group: the acceptance benchmark solves several CP-SAT instances.
+  test.setTimeout(600_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const n = Date.now() % 100_000, ref = `yard-admission@1.${Math.floor(n / 1000)}.${n % 1000}`;
+  await page.goto("/#/artifacts");
+  await page.getByLabel("制品族").selectOption("yard-admission");
+  await page.getByLabel("从可信源构建 yard-admission 版本").fill(ref.split("@")[1]);
+  await advance(page, ["构建草稿"]);
+  const row = page.getByRole("list", { name: "制品版本" }).getByRole("listitem").filter({ hasText: ref });
+  await row.getByRole("button", { name: "运行验收基准" }).click();
+  await expect(row.getByText("已验收")).toBeVisible({ timeout: 480_000 });
+  page.once("dialog", d => void d.accept("基准通过，范围限合成场地"));
+  await row.getByRole("button", { name: "发布" }).click();
+  await expect(row.getByText("已发布")).toBeVisible();
+  await page.getByRole("button", { name: "用该制品的示例流程" }).click();
+  // The sample workflow pins the latest released version; give it this run's version number.
+  const editor = page.getByLabel("流程定义 JSON");
+  const def = JSON.parse(await editor.inputValue()); def.version = n;
+  def.nodes = def.nodes.map((x: { artifact?: string }) => x.artifact ? { ...x, artifact: ref } : x);
+  await editor.fill(JSON.stringify(def, null, 2));
+  await advance(page, ["校验"]);
+  await expect(page.getByText("执行顺序 schedule → verify → gate → controller")).toBeVisible();
+  await advance(page, ["保存流程版本"]);
+  await page.getByLabel("合成实例").selectOption("peak");
+  await advance(page, ["用合成实例运行"]);
+  const run = page.locator("details.run-detail").first();
+  await expect(run.getByText("待人工确认")).toBeVisible({ timeout: 120_000 });
+  await expect(run.getByText(/入场 \d+ 辆 · 优先级分 \d+/)).toBeVisible();
+  await expect(run.getByRole("table", { name: "入场安排" })).toBeVisible();
+  await noOverflow(page);
+  await page.screenshot({ path: testInfo.outputPath("yard-run-390.png"), fullPage: true });
+  page.once("dialog", d => void d.accept("场地调度员核对后确认（合成实例）"));
+  await run.getByRole("button", { name: "确认 controller" }).click();
+  await expect(run.locator("summary").getByText("完成")).toBeVisible();
+});

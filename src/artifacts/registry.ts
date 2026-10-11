@@ -19,9 +19,10 @@ import type { Store } from "../store.js";
 import { FileEntry, PackageSubmission, signer, signManifest, verifyManifestSignature } from "../signing.js";
 import { ArtifactManifest, NO_MODEL, TRANSITIONS, Usage, type ArtifactAdapter, type Lifecycle, type OperationResult } from "./contract.js";
 import { logisticsAdapter } from "./logistics.js";
+import { yardAdapter } from "./yard.js";
 
 /** The plugin registry: the one place an artifact family is added. */
-export const ADAPTERS: Record<string, ArtifactAdapter> = { [logisticsAdapter.id]: logisticsAdapter };
+export const ADAPTERS: Record<string, ArtifactAdapter> = { [logisticsAdapter.id]: logisticsAdapter, [yardAdapter.id]: yardAdapter };
 export const adapterOf = (id: string) => { const a = ADAPTERS[id]; if (!a) throw new DomainError("UNKNOWN_ADAPTER", `No artifact adapter ${id}`, 422); return a; };
 
 export interface ArtifactVersion {

@@ -3,11 +3,11 @@ import { api } from "../api";
 import { useApp } from "../context";
 import { Card, Check, Chip, Empty, ViewHeader, time, type Tone } from "../ui";
 import type { ArtifactVersion } from "../../src/artifacts/registry";
-import { planningWorkflow } from "../../src/artifacts/samples";
+import { planningWorkflow, yardWorkflow } from "../../src/artifacts/samples";
 import type { Workflow, WorkflowRun } from "../../src/artifacts/workflows";
 
 /** Workspace-level: the artifact registry (algorithms/models) and configurable business workflows over them. */
-type Summary = { id: string; title: string; kind: string; state: ArtifactVersion["state"]; digest: string; origin: string; validated: { at: string; passed: boolean } | null };
+type Summary = { id: string; title: string; kind: string; state: ArtifactVersion["state"]; digest: string; origin: string; adapter: string; validated: { at: string; passed: boolean } | null };
 const STATE: Record<string, [string, Tone]> = { draft: ["草稿", "muted"], validated: ["已验收", "info"], released: ["已发布", "ok"], deprecated: ["已弃用", "warn"] };
 const RUN: Record<string, [string, Tone]> = { running: ["运行中", "live"], "waiting-approval": ["待人工确认", "warn"], succeeded: ["完成", "ok"], rejected: ["已拒绝", "bad"],
   failed: ["失败", "bad"], interrupted: ["已中断", "warn"] };
@@ -21,12 +21,16 @@ const download = (name: string, value: unknown) => {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
+const ADAPTER_LABEL: Record<string, string> = { "logistics-pdptw": "场外物流规划（车辆路径）", "yard-admission": "场地准入与排队调度（CP-SAT）" };
+const ROUTE_SCENARIOS = [["normal", "常规（40 单 / 8 车）"], ["tight", "收窄送货时间窗"], ["overload", "单票超重 9 t"]] as const;
+const YARD_SCENARIOS = [["normal", "常规班次（24 车 / 4 h）"], ["peak", "高峰（40 车 / 90 min）"], ["overload", "含无月台可接的危险品车"]] as const;
 export function Artifacts() {
   const c = useApp();
   const [artifacts, setArtifacts] = useState<Summary[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [version, setVersion] = useState("1.0.0");
+  const [adapters, setAdapters] = useState<string[]>(["logistics-pdptw"]), [adapter, setAdapter] = useState("logistics-pdptw");
   const [definition, setDefinition] = useState("");
   const [check, setCheck] = useState<{ valid: boolean; message?: string; order?: string[] }>();
   const [verified, setVerified] = useState<{ valid: boolean; artifact?: string; error?: string; message?: string; signer?: { trusted: boolean } }>();
@@ -34,8 +38,8 @@ export function Artifacts() {
   const [scenario, setScenario] = useState("normal");
   const [seed, setSeed] = useState(11);
   const load = useCallback(async () => {
-    const [a, w, r] = await Promise.all([api<{ artifacts: Summary[] }>("/v1/artifacts"), api<Workflow[]>("/v1/workflows"), api<WorkflowRun[]>("/v1/workflow-runs")]);
-    setArtifacts(a.artifacts); setWorkflows(w); setRuns(r);
+    const [a, w, r] = await Promise.all([api<{ artifacts: Summary[]; adapters: string[] }>("/v1/artifacts"), api<Workflow[]>("/v1/workflows"), api<WorkflowRun[]>("/v1/workflow-runs")]);
+    setArtifacts(a.artifacts); setAdapters(a.adapters); setWorkflows(w); setRuns(r);
     return a.artifacts;
   }, []);
   useEffect(() => { void load().then(a => {
@@ -45,16 +49,21 @@ export function Artifacts() {
   const act = (f: () => Promise<unknown>, message: string) => c.perform(async () => { await f(); await load(); }, message);
   const reason = (label: string) => { const r = prompt(label)?.trim(); if (!r || r.length < 5) { c.toast("需要至少 5 个字的理由。", "bad"); return undefined; } return r; };
   const selected = workflows.find(w => w.id === workflowId) ?? workflows.at(-1);
+  const yardRun = Boolean(selected?.definition.nodes.some(n => n.type === "artifact" && (n as { artifact: string }).artifact.startsWith("yard-admission@")));
 
   return <>
     <ViewHeader step="工作区 · 制品与编排" title="制品库与流程编排"
       description="交付的是可独立核验的制品：算法和模型按不可变版本登记，经自身基准验收、人工发布后才能被流程使用；流程用 JSON 配置，引用精确版本，每个节点记录产物、证据与用量。示例全部是合成数据。" />
     <Card title="制品库" aside={<small>{artifacts.length} 个版本 · 名称@语义版本 · 摘要即身份</small>} label="制品库">
       <div className="field-grid two">
-        <label>从可信源构建 logistics-pdptw 版本<input value={version} onChange={e => setVersion(e.target.value)} inputMode="decimal" pattern="\d+\.\d+\.\d+" /></label>
-        <div className="button-row"><button type="button" disabled={c.busy} onClick={() => void act(() => api("/v1/artifacts", { adapter: "logistics-pdptw", version }), "制品版本已登记为草稿。")}>构建草稿</button></div>
+        <label>制品族<select value={adapter} onChange={e => setAdapter(e.target.value)}>{adapters.map(x => <option key={x} value={x}>{ADAPTER_LABEL[x] ?? x}</option>)}</select></label>
+        <label>从可信源构建 {adapter} 版本<input value={version} onChange={e => setVersion(e.target.value)} inputMode="decimal" pattern="\d+\.\d+\.\d+" /></label>
+        <div className="button-row"><button type="button" disabled={c.busy} onClick={() => void act(() => api("/v1/artifacts", { adapter, version }), "制品版本已登记为草稿。")}>构建草稿</button>
+          {artifacts.some(a => a.adapter === adapter && ["validated", "released"].includes(a.state)) && <button type="button" className="secondary"
+            onClick={() => { const usable = artifacts.find(a => a.adapter === adapter && a.state === "released") ?? artifacts.find(a => a.adapter === adapter && a.state === "validated")!;
+              setDefinition(JSON.stringify(adapter === "yard-admission" ? yardWorkflow(usable.id) : planningWorkflow(usable.id), null, 2)); }}>用该制品的示例流程</button>}</div>
       </div>
-      {artifacts.length === 0 ? <Empty title="还没有制品">构建第一个制品：场外物流规划（OR-Tools 取送货车辆路径）。</Empty> :
+      {artifacts.length === 0 ? <Empty title="还没有制品">构建第一个制品：场外物流规划（OR-Tools 车辆路径）或场地准入调度（CP-SAT）。</Empty> :
         <ul className="artifact-list" aria-label="制品版本">{artifacts.map(a => <li key={a.id}>
           <div className="artifact-id"><strong>{a.id}</strong> <Chip tone={STATE[a.state][1]}>{STATE[a.state][0]}</Chip>{a.validated && !a.validated.passed && <Chip tone="bad">基准未通过</Chip>}
             <small>{a.kind === "algorithm" ? "算法" : "模型"} · {a.title}{a.origin === "imported" ? " · 导入" : ""} · <code>{a.digest.slice(0, 12)}</code></small></div>
@@ -92,8 +101,8 @@ export function Artifacts() {
       {workflows.length === 0 ? <Empty title="先保存一个流程版本" /> : <>
         <div className="field-grid">
           <label>流程<select value={selected?.id ?? ""} onChange={e => setWorkflowId(e.target.value)}>{workflows.map(w => <option key={w.id} value={w.id}>{w.id} · {w.definition.title}</option>)}</select></label>
-          <label>合成实例<select value={scenario} onChange={e => setScenario(e.target.value)}>
-            <option value="normal">常规（40 单 / 8 车）</option><option value="tight">收窄送货时间窗</option><option value="overload">单票超重 9 t</option></select></label>
+          <label>合成实例<select value={scenario} onChange={e => setScenario(e.target.value)}>{(yardRun ? YARD_SCENARIOS : ROUTE_SCENARIOS).map(([v, l]) =>
+            <option key={v} value={v}>{l}</option>)}</select></label>
           <label>种子<input type="number" value={seed} min={0} onChange={e => setSeed(Number(e.target.value))} /></label>
         </div>
         <div className="button-row"><button type="button" disabled={c.busy || !selected} onClick={() => void act(async () => {
@@ -143,11 +152,29 @@ function Tenants({ workflows, act, reason }: { workflows: Workflow[]; act: (f: (
   </Card>;
 }
 
+type YardPlan = { status: string; plan: { truck: string; admitted: boolean; entry?: number; dock?: string; handleStart?: number; departure?: number }[];
+  totals: { admitted: number; turnedAway: string[]; priorityAdmitted: number; waitingMin: number }; solver: { proven?: boolean } };
+/** Site admission result: who enters when and at which dock; turned-away trucks are listed, never dropped silently. */
+function YardSummary({ plan }: { plan: YardPlan }) {
+  const hhmm = (m?: number) => m === undefined ? "—" : `${String(Math.floor(m / 60) + 6).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  const rows = plan.plan.filter(r => r.admitted).sort((a, b) => a.entry! - b.entry!);
+  return <div className="yard-summary">
+    <p className="muted">入场 {plan.totals.admitted} 辆 · 优先级分 {plan.totals.priorityAdmitted} · 总等待 {plan.totals.waitingMin} min
+      {plan.totals.turnedAway.length ? ` · 本时段不安排 ${plan.totals.turnedAway.length} 辆（${plan.totals.turnedAway.slice(0, 8).join("、")}${plan.totals.turnedAway.length > 8 ? "…" : ""}）` : ""}
+      {plan.solver.proven ? " · 已证明最优" : " · 预算内最好解（未证明最优）"}</p>
+    <div className="table-wrap"><table className="data-table"><caption className="visually-hidden">入场安排</caption>
+      <thead><tr><th scope="col">车辆</th><th scope="col">入场</th><th scope="col">月台</th><th scope="col">开始作业</th><th scope="col">离场</th></tr></thead>
+      <tbody>{rows.slice(0, 12).map(r => <tr key={r.truck}><td>{r.truck}</td><td>{hhmm(r.entry)}</td><td>{r.dock}</td><td>{hhmm(r.handleStart)}</td><td>{hhmm(r.departure)}</td></tr>)}</tbody></table></div>
+    {rows.length > 12 && <small className="muted">另有 {rows.length - 12} 辆，见运行数据。</small>}
+  </div>;
+}
 function RunCard({ run, onChange, reason }: { run: WorkflowRun; onChange: () => Promise<unknown>; reason: (l: string) => string | undefined }) {
+  const [yard, setYard] = useState<YardPlan>();
   const c = useApp();
   const [plan, setPlan] = useState<{ status: string; totalDistanceKm: number; totalCost: number; vehiclesUsed: number; unassigned: string[]; routes: { vehicle: string; stops: unknown[]; distanceKm: number }[] }>();
   const [checks, setChecks] = useState<{ id: string; passed: boolean; detail?: string[] }[]>();
   useEffect(() => {
+    if (run.nodes.schedule?.outputs?.plan) void api<YardPlan>(`/v1/workflow-runs/${run.id}/data?node=schedule&name=plan`).then(setYard).catch(() => undefined);
     if (!run.nodes.solve?.outputs?.plan) return;
     void api<NonNullable<typeof plan>>(`/v1/workflow-runs/${run.id}/data?node=solve&name=plan`).then(setPlan).catch(() => undefined);
     if (run.nodes.verify?.outputs?.verification) void api<{ checks: NonNullable<typeof checks> }>(`/v1/workflow-runs/${run.id}/data?node=verify&name=verification`).then(v => setChecks(v.checks)).catch(() => undefined);
@@ -162,6 +189,7 @@ function RunCard({ run, onChange, reason }: { run: WorkflowRun; onChange: () => 
         <td>{n.usage ? `${n.usage.native.wallSeconds} / ${n.usage.native.cpuSeconds ?? "unknown"}` : "—"}</td><td>{n.usage ? `${(n.usage.native.storageBytes / 1024).toFixed(1)} KB` : "—"}</td>
         <td>{n.usage ? n.usage.model.status === "none" ? "无模型调用" : n.usage.model.status === "unknown" ? "unknown" : `${n.usage.model.inputTokens} / ${n.usage.model.outputTokens}` : "—"}</td></tr>)}</tbody></table></div>
     {checks && <ul className="checks" aria-label="独立核验">{checks.map(k => <Check key={k.id} passed={k.passed} title={CHECK[k.id] ?? k.id} detail={k.detail?.length ? k.detail.slice(0, 3).join("；") : "独立复算一致"} />)}</ul>}
+    {yard && <YardSummary plan={yard} />}
     {plan && plan.routes.length > 0 && <p className="muted">{plan.vehiclesUsed} 辆车 · 成本 {plan.totalCost}{plan.unassigned.length ? ` · ${plan.unassigned.length} 单未分配` : ""} · {plan.routes.map(r => `${r.vehicle} ${r.stops.length} 站 ${r.distanceKm} km`).join("；")}</p>}
     {waiting && <div className="button-row">
       <button type="button" disabled={c.busy} onClick={() => { const r = reason("确认理由（记录在运行里）"); if (r) void c.perform(async () => { await api(`/v1/workflow-runs/${run.id}/decisions`, { node: waiting, approve: true, reason: r }); await onChange(); }, "已确认，流程继续。"); }}>确认 {waiting}</button>

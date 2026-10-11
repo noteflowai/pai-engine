@@ -114,7 +114,7 @@ jobs:
           - lane: cad
             tools: { blender: "true", sandbox: "true", cadquery: "true", logistics: "true" }
             run: |
-              npm run test:blender && npm run test:cad && npm run test:pillow && npm run test:artifacts
+              npm run test:blender && npm run test:cad && npm run test:pillow && npm run test:artifacts && npm run test:yard
               python3 tools/slim_cadquery_lock.py --python .state/tools/cadquery-2.8.0/bin/python --check
               python3 -m pip install -q botocore==1.43.82 && python3 -m unittest discover -s tests/agentcore -p 'test_*.py'
               npm run test:cad-code
@@ -169,8 +169,8 @@ jobs:
             .state/browser/cad/*/*/cam.json
           retention-days: 14
   browser:
-    # Desktop, mobile and real video decoding. Playwright shards by test count, so the ~7 min CAM test (@cam) gets its
-    # own job with only the tools it needs; the rest split into three shards. Each job has its own server and state.
+    # Desktop, mobile and real video decoding. Playwright shards by test count, so the long tests (@cam: CAM, the
+    # CP-SAT site-admission benchmark) get their own job with only the tools they need; the rest split into three shards. Each job has its own server and state.
     needs: changes
     if: needs.changes.outputs.source == 'true'
     runs-on: ubuntu-24.04
@@ -182,7 +182,7 @@ jobs:
           - { shard: "1/3", args: "--grep-invert @cam --shard=1/3", blender: "true", sandbox: "true", physics: "true", logistics: "true", cam: "false" }
           - { shard: "2/3", args: "--grep-invert @cam --shard=2/3", blender: "true", sandbox: "true", physics: "true", logistics: "true", cam: "false" }
           - { shard: "3/3", args: "--grep-invert @cam --shard=3/3", blender: "true", sandbox: "true", physics: "true", logistics: "true", cam: "false" }
-          - { shard: cam, args: "--grep @cam", blender: "false", sandbox: "false", physics: "false", logistics: "false", cam: "true" }
+          - { shard: cam, args: "--grep @cam", blender: "false", sandbox: "false", physics: "false", logistics: "true", cam: "true" }
     name: browser (${{ matrix.shard }})
     env:
       PAI_BLENDER: ${{ matrix.blender == 'true' && format('{0}/.state/tools/blender-5.2.2-linux-x64/blender', github.workspace) || '' }}

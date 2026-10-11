@@ -3,9 +3,17 @@
 [![Workbench checks](https://github.com/noteflowai/pai-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/noteflowai/pai-engine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Physical AI 引擎平台：AI 提议，原生求解器裁决，结论带签名证据。**
+**面向物理世界的可信决策引擎：以本体统一工业语义，以原生求解器裁决，以签名证据交付。**
 
-PAI Engine 把 CAD、FEA、CFD、机器人仿真、CAM 和运筹求解器接成一个可核验的平台。模型（Kiro、Codex、Claude、Strands Decider）只能提议或建议；结论只来自原生求解器和独立核验器；修改需求、验收和发布只能由人来做。每个被采用的结果都能追溯到冻结的需求版本、求解器回执和 KMS 签名。
+工业里的 AI 难以落地，难点不在于模型会不会提方案，而在于没有人能为它签字：方案依据的是哪一版需求，物理上成不成立，谁批准的，事后能不能复核。PAI Engine 回答的就是这个问题。设计、仿真、制造和运营决策（零件、产线、机器人单元、场地与物流）在这里都表达为同一个**本体**里的对象、关系和动作；模型（Kiro、Codex、Claude、Strands Decider）只能提议或建议，结论只来自原生求解器（CAD/OCCT、FEA、CFD、MuJoCo、CAM、OR-Tools）和独立核验器，需求变更、验收和发布只能由人做；每个被采用的结果都带着冻结的需求版本、求解器回执和 KMS 签名，可以离线复核。
+
+| 核心价值 | 做法 |
+|---|---|
+| **一个语义模型，贯穿全链路** | 本体 `pai-ontology-1` 是平台唯一的领域模型：对象类型就是存储的记录种类，链接是记录真实携带的引用，**动作是唯一的写入方式**；路由、权限（维护者 / Agent scope / 租户）、Agent 与租户可见范围都从它派生，契约测试保证模型与代码不会漂移。导出 JSON Schema 与 OWL 2 + SHACL（映射 W3C PROV-O），外部系统按同一套语义对接 |
+| **AI 提议，物理裁决** | 每个引擎在目录里声明权限：只有原生求解器能给出结论，交叉校验引擎（Newton、Strands Robots）只给一致性记录，模型只给建议；代理模型只排序，推荐点必须实测复核 |
+| **可复核的证据，而不是截图** | 结论绑定冻结的需求摘要、求解器版本与源码摘要、逐项检查；发布包 KMS 签名并加 RFC 3161 时间戳，在另一个环境可以离线核验并复现 |
+| **决策算法即制品** | 优化与决策算法（车辆路径、场地准入与排队调度等）以不可变、自带验收基准的制品交付，用 JSON 流程组合，人工确认节点把关，按租户隔离运行并记录用量 |
+| **不确定就停下** | 结果未知的原生或模型运行等人工核对，不自动重试；仿真结果始终标注为仿真，不冒充物理验证 |
 
 托管实例：<https://pai.oneai.host>（登录可见；页面左上角显示运行的版本和提交）。仓库原名 `pai-design-workbench`，2026-10-11 改名，旧地址自动跳转。
 
@@ -58,6 +66,7 @@ flowchart LR
 | 自主 | 维护者在总览的"AI 自主迭代"卡片里签发授权（工具、次数、有效期）、给出目标，autopilot 多轮执行"提议 → 原生检查 → 修改"；执行器无法确认副作用时停下等人核对，核对后在同一授权内继续；外部 Agent 用 `pai_run_plan` 在同一授权内触发求解。实跑：Codex 为轴承座提出参数化修正，原生检查通过（150.654 g，见 [VERIFICATION.md](docs/VERIFICATION.md)）；所有冻结要求（外形、载荷、DFM、CAM 节拍）都参与放宽判断，不能放宽要求、验收或发布 | [INDUSTRY_BENCHMARK.md](docs/INDUSTRY_BENCHMARK.md) |
 | 本体与引擎 | `pai-ontology-1`：26 个对象类型、31 个链接类型、46 个动作类型，写入只能经过动作；JSON 与 OWL/SHACL 导出，对象可按链接双向读取；引擎目录标明每个引擎的权限（结论 / 一致性 / 建议）。Strands Robots 对照官方 UR5e：200 个构型法兰最大偏差 6.4 mm，据此把单元连杆质量改为官方值（29.0 → 16.99 kg，节拍与结论不变）。Strands Decider 2B 在规则解析不出工具时给出带置信度的建议（L40S 约 200 ms），只建议、不执行 | [ADR 0002](docs/adr/0002-physical-ai-engine-platform.md) · [API](docs/API.md#ontology-and-engines-v1) |
 | 外部 Agent | AgentForge 会话经治理 MCP 网关使用 11 个工具（读取、提议、求解数据集、授权内执行）；工作台 `integrations/agentforge` 是唯一来源，底座用一个摘要安装 | [integrations/agentforge](integrations/agentforge/README.md) |
+| 制品（场地准入调度） | 场地有限时哪些车入场、何时入场、上哪个月台、何时离场：OR-Tools CP-SAT（门岗、堆场车位、月台匹配、班组、时间窗），独立核验器按分钟重算；高峰 40 车：入场 15 车、优先级分 34，先到先服务 11 车、17 分。合成场地，不放行真实车辆 | [ADR 0001](docs/adr/0001-artifacts-and-workflows.md#第二个制品场地准入与排队调度-yard-admission2026-10-11) · [VERIFICATION](docs/VERIFICATION.md#场地准入调度2026-10-11) |
 | 制品（物流规划） | OR-Tools 取送货车辆路径，独立核验器只用标准库：验收基准 24 单 / 5 车，OR-Tools 3 车 698 km 全部分配，顺序启发式 5 车 1538 km 漏 2 单；新环境只拿签名包、重新验收后复现相同路线。合成数据，不派车、不声称最优 | [ADR 0001](docs/adr/0001-artifacts-and-workflows.md) · [VERIFICATION](docs/VERIFICATION.md#制品平台) |
 | 界面 | 响应式 Web/PWA 与 Electron 桌面版；三维视口实时显示构建；失败检查旁"问 AI"；Ctrl+K 命令面板与任务搜索；深浅色；全部页面通过 WCAG 2.1 AA；[31 个典型工业用例](docs/INDUSTRIAL_TEST_CASES.md)覆盖全部通道 | [UI_UX_BENCHMARK](docs/UI_UX_BENCHMARK.md) |
 
@@ -68,6 +77,19 @@ flowchart LR
 | A · 机器人工作单元 | B · 产线布局 | D · 设计到车间 | E · AI 设计，求解器裁决 |
 |---|---|---|---|
 | [![A](docs/media/physics-demo.gif)](docs/media/physics-demo.mp4) | [![B](docs/media/factory-demo.gif)](docs/media/factory-demo.mp4) | [![D](docs/media/cam-demo.gif)](docs/media/cam-demo.mp4) | [![E](docs/media/ai-demo.gif)](docs/media/ai-demo.mp4) |
+
+### 场外物流决策：场地准入与排队调度
+
+一个空间有限的场地，40 辆车在 90 分钟内陆续到达：每辆车有到达时间窗、货型和车长；场地有 2 条门岗车道、10 个堆场车位、6 个货型和车长各不相同的月台、3 组作业班组。下图是两种决策方式在同一合成实例上的结果，两份方案都经独立核验器按分钟重算通过：
+
+![场地准入调度：OR-Tools CP-SAT 与先到先服务在同一高峰实例上的月台甘特图和堆场占用](docs/media/yard-demo.svg)
+
+| 高峰 40 车（种子 7） | 入场车辆 | 优先级分 | 总等待 | 独立核验 |
+|---|---|---|---|---|
+| OR-Tools CP-SAT | 15 | 34 | 258 min | 通过 |
+| 先到先服务（基线） | 11 | 17 | 359 min | 通过 |
+
+先到先服务让早到的长作业车占住月台和车位，后面的冷链、高优先级车只能被拒；CP-SAT 在同样的门岗、车位和班组约束下重新安排入场和月台，同时把等待压下来。放不下的车会被明确列为"本时段不安排"，不会被硬塞进去；在预算内给出的是最好解，并如实标出"未证明最优"。复现：`npm run setup:logistics && npm run test:yard`。
 
 ## 快速启动
 
