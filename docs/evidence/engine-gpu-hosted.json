@@ -1,0 +1,53 @@
+{
+  "schema": "pai-aws-engine-gpu-1",
+  "site": "https://pai.oneai.host",
+  "checkedAt": "2026-10-11T15:22:03.665Z",
+  "build": "v0.9.0 · 166d359",
+  "host": {
+    "instanceType": "g6.xlarge",
+    "gpu": "NVIDIA L4",
+    "driver": "580.178.04",
+    "cdi": "nvidia-ctk 1.20.1 (NVIDIA signed repository), spec 0.6.0 JSON",
+    "containers": "rootless podman, single uid mapping; GPU containers: ephemeral writable root (CDI hooks), no network, no capabilities"
+  },
+  "cadReview": {
+    "verdict": "rejected",
+    "receipts": [
+      "cadquery-native:0:container/cad/05170a344f1f",
+      "calculix-fea:0:container/physics/765e39ddebc3",
+      "blender-render:0:container/blender/debe33ef337d",
+      "cadquery-native:0:container/cad/05170a344f1f",
+      "calculix-fea:0:container/physics/765e39ddebc3",
+      "blender-render:0:container/blender/debe33ef337d",
+      "evalarc-native:1:none"
+    ],
+    "renderDevice": "OPTIX NVIDIA L4 (both renders)"
+  },
+  "robotCell": {
+    "verdict": "accepted-static-scene",
+    "receipts": [
+      "mujoco-native:0:container/physics/cpu",
+      "mujoco-native:0:container/physics/cpu",
+      "newton-usd:0:container/newton/gpu",
+      "strands-robots:0:process/robots/cpu",
+      "evalarc-native:0:none"
+    ],
+    "newton": {
+      "device": "cuda",
+      "passed": true,
+      "fkPositionM": 3.24e-07,
+      "fkOrientationDeg": 3.6e-05,
+      "bodyMass": 3.5e-07,
+      "tolerancePositionM": 0.0001
+    }
+  },
+  "aiLedgerUnchanged": {
+    "finished": 24,
+    "uncertain": 4
+  },
+  "leftoverContainers": 0,
+  "infra": {
+    "wordPressPublicStatus": 200,
+    "targetHealth": "healthy"
+  }
+}

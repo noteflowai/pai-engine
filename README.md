@@ -123,8 +123,8 @@ flowchart TB
   
   ALB、Cognito、Batch 和 KMS 不变。
 - **现状（2026-10-11）**：
-  - 已上线：托管站点运行在 g6.xlarge 上，Decider 在 GPU 上运行；FEA、CFD 和 CAM 在 Batch 容器里运行；引擎运行时和足迹检查已合入，目前使用进程后端。
-  - 按 ADR 0004 分步推进：宿主机容器后端、Blender 与 Newton 改用 GPU、镜像签名。
+  - 已上线：托管站点运行在 g6.xlarge 上；OR-Tools、CadQuery、CalculiX/Gmsh/MuJoCo、Blender（OptiX）、Newton（CUDA）都在一次性 rootless 引擎容器里运行，镜像按摘要固定、推送即扫描；Decider 在 GPU 上运行；FEA 寻优、CFD 和 CAM 在 Batch 容器里运行。
+  - 按 ADR 0004 继续：模型写的代码改用 gVisor、Strands Robots 与 Decider 容器化、镜像签名。
   - EKS 是已设计好的替换路径，目前没有部署。
 
 ## 能力
