@@ -136,6 +136,30 @@ test("classic case C2 with AI in context: failed row → ask AI → validated pl
   const vp = await page.locator(".viewport").boundingBox();
   expect(vp!.y, "viewport starts in the upper half of the first screen").toBeLessThan(450);
   expect(vp!.height).toBeGreaterThanOrEqual(420);
+  // Focus mode: the viewport fills the window, Esc restores it and returns focus; the outliner can be hidden.
+  const viewport = page.locator(".viewport");
+  await viewport.getByRole("button", { name: "最大化视口" }).click();
+  const full = page.getByRole("dialog", { name: /三维视口/ });
+  await expect(full).toBeVisible();
+  const box = await full.boundingBox();
+  expect(Math.round(box!.width)).toBe(1440); expect(Math.round(box!.height)).toBe(900);
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
+  expect((await new AxeBuilder({ page }).include(".viewport").exclude(".viewport-canvas").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations
+    .filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+  await viewport.getByRole("button", { name: "大纲" }).click();
+  await expect(page.locator(".viewport-side")).toBeHidden();
+  await viewport.getByRole("button", { name: "大纲" }).click();
+  await page.keyboard.press("Escape");
+  await expect(full).toHaveCount(0);
+  await expect(viewport.getByRole("button", { name: "最大化视口" })).toBeFocused();
+  // Phone width: same focus mode, nothing overflows; the outliner starts hidden on a narrow screen after reload.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await viewport.getByRole("button", { name: "最大化视口" }).click();
+  expect(Math.round((await full.boundingBox())!.width)).toBe(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  await viewport.getByRole("button", { name: "还原视口" }).click();
+  await page.reload(); await expect(page.locator(".viewport-side")).toBeHidden();
+  await page.setViewportSize({ width: 1440, height: 900 }); await page.reload();
   // Measured table: the failed rule shows observed, required and a negative allowance.
   const row = page.locator(".check-table tr.fail");
   await expect(row).toHaveCount(1);
