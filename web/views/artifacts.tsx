@@ -4,6 +4,7 @@ import { useApp } from "../context";
 import { Card, Check, Chip, Empty, ViewHeader, time, type Tone } from "../ui";
 import type { ArtifactVersion } from "../../src/artifacts/registry";
 import { planningWorkflow, yardWorkflow } from "../../src/artifacts/samples";
+import { TWIN } from "../twin-evidence";
 import type { Workflow, WorkflowRun } from "../../src/artifacts/workflows";
 
 /** Workspace-level: the artifact registry (algorithms/models) and configurable business workflows over them. */
@@ -53,8 +54,26 @@ export function Artifacts() {
   const yardRun = Boolean(selected?.definition.nodes.some(n => n.type === "artifact" && (n as { artifact: string }).artifact.startsWith("yard-admission@")));
 
   return <>
-    <ViewHeader step="工作区 · 制品与编排" title="制品库与流程编排"
-      description="交付的是可独立核验的制品：算法和模型按不可变版本登记，经自身基准验收、人工发布后才能被流程使用；流程用 JSON 配置，引用精确版本，每个节点记录产物、证据与用量。示例全部是合成数据。" />
+    <ViewHeader step="决策平台 · 决策算法与孪生" title="决策算法与物理 AI 孪生"
+      description="场地准入、车辆路径等决策算法以不可变、自带验收基准的制品交付，在孪生里由传感器事件触发重排，每份方案都经独立核验器检查后才被采用；流程把算法、核验和人工确认串起来，按租户隔离运行并记录用量。示例全部是合成数据。" />
+    <TwinHero />
+    <DecisionCatalog artifacts={artifacts} workflows={workflows} onRun={id => { setWorkflowId(id); document.getElementById("run-card")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
+    <Card title="运行" aside={<small>不自动重试 · 原生用量与模型 Token 分开记录</small>} label="流程运行" id="run-card">
+      {workflows.length === 0 ? <Empty title="先保存一个流程版本" /> : <>
+        <div className="field-grid">
+          <label>流程<select value={selected?.id ?? ""} onChange={e => setWorkflowId(e.target.value)}>{workflows.map(w => <option key={w.id} value={w.id}>{w.id} · {w.definition.title}</option>)}</select></label>
+          <label>合成实例<select value={scenario} onChange={e => setScenario(e.target.value)}>{(yardRun ? YARD_SCENARIOS : ROUTE_SCENARIOS).map(([v, l]) =>
+            <option key={v} value={v}>{l}</option>)}</select></label>
+          <label>种子<input type="number" value={seed} min={0} onChange={e => setSeed(Number(e.target.value))} /></label>
+        </div>
+        <div className="button-row"><button type="button" disabled={c.busy || !selected} onClick={() => void act(async () => {
+          const ref = selected!.definition.nodes.find(n => n.type === "artifact") as { artifact: string } | undefined;
+          const problem = await api(`/v1/artifacts/${ref!.artifact}/samples`, { scenario, seed });
+          await api("/v1/workflow-runs", { requestId: crypto.randomUUID(), workflow: selected!.id, inputs: { problem } });
+        }, "流程已运行，结果见下方。")}>用合成实例运行</button></div>
+      </>}
+      {runs.map(r => <RunCard key={r.id} run={r} onChange={load} reason={reason} focused={r.id === focus} />)}
+    </Card>
     <Card title="制品库" aside={<small>{artifacts.length} 个版本 · 名称@语义版本 · 摘要即身份</small>} label="制品库">
       <div className="field-grid two">
         <label>制品族<select value={adapter} onChange={e => setAdapter(e.target.value)}>{adapters.map(x => <option key={x} value={x}>{ADAPTER_LABEL[x] ?? x}</option>)}</select></label>
@@ -98,22 +117,6 @@ export function Artifacts() {
       {check && <p role="status" className={check.valid ? "ok-text" : "bad-text"}>{check.valid ? `结构、类型与依赖检查通过；执行顺序 ${check.order?.join(" → ")}` : `未通过：${check.message}`}</p>}
     </Card>
 
-    <Card title="运行" aside={<small>不自动重试 · 原生用量与模型 Token 分开记录</small>} label="流程运行">
-      {workflows.length === 0 ? <Empty title="先保存一个流程版本" /> : <>
-        <div className="field-grid">
-          <label>流程<select value={selected?.id ?? ""} onChange={e => setWorkflowId(e.target.value)}>{workflows.map(w => <option key={w.id} value={w.id}>{w.id} · {w.definition.title}</option>)}</select></label>
-          <label>合成实例<select value={scenario} onChange={e => setScenario(e.target.value)}>{(yardRun ? YARD_SCENARIOS : ROUTE_SCENARIOS).map(([v, l]) =>
-            <option key={v} value={v}>{l}</option>)}</select></label>
-          <label>种子<input type="number" value={seed} min={0} onChange={e => setSeed(Number(e.target.value))} /></label>
-        </div>
-        <div className="button-row"><button type="button" disabled={c.busy || !selected} onClick={() => void act(async () => {
-          const ref = selected!.definition.nodes.find(n => n.type === "artifact") as { artifact: string } | undefined;
-          const problem = await api(`/v1/artifacts/${ref!.artifact}/samples`, { scenario, seed });
-          await api("/v1/workflow-runs", { requestId: crypto.randomUUID(), workflow: selected!.id, inputs: { problem } });
-        }, "流程已运行，结果见下方。")}>用合成实例运行</button></div>
-      </>}
-      {runs.map(r => <RunCard key={r.id} run={r} onChange={load} reason={reason} focused={r.id === focus} />)}
-    </Card>
     <Tenants workflows={workflows} act={act} reason={reason} />
   </>;
 }
@@ -151,6 +154,35 @@ function Tenants({ workflows, act, reason }: { workflows: Workflow[]; act: (f: (
       {o.state === "active" && <button type="button" className="secondary compact" onClick={() => {
         const r = reason("撤销理由（至少 5 个字）"); if (r) void run(() => api(`/v1/offerings/${o.id}/revoke`, { reason: r }), "已撤销。");
       }}>撤销</button>}</li>)}</ul>}
+  </Card>;
+}
+
+/** The recorded yard twin: same disturbed day, first-come-first-served vs CP-SAT re-planning on sensor events. */
+function TwinHero() {
+  const f = TWIN.fcfs, c = TWIN.cpSat;
+  const rows: [string, string | number, string | number, boolean][] = [["入场车辆", f.admitted, c.admitted, c.admitted > f.admitted], ["被拒入场", f.turnedAway, c.turnedAway, c.turnedAway < f.turnedAway],
+    ["优先级分", f.priorityAdmitted, c.priorityAdmitted, c.priorityAdmitted > f.priorityAdmitted], ["冷链作业", f.reeferAdmitted, c.reeferAdmitted, c.reeferAdmitted > f.reeferAdmitted],
+    ["平均在场", `${f.avgTurnaroundMin} min`, `${c.avgTurnaroundMin} min`, c.avgTurnaroundMin < f.avgTurnaroundMin], ["传感器触发重排", "—", `${TWIN.replans} 次`, false]];
+  return <Card title="物理 AI 孪生：场地准入，传感器触发的实时决策" className="twin-hero" label="场地孪生"
+    aside={<small>记录于 {time(TWIN.recordedAt)} · 合成工作日 · 两份最终方案均经独立核验</small>}>
+    <p className="muted">同一个工作日注入扰动：{TWIN.disturbances}。左列按先到先服务处理；右列由场地准入制品（OR-Tools CP-SAT）开班排一次，此后每个传感器事件重排，已进场车辆保持不变。</p>
+    <div className="table-wrap"><table className="data-table kpi"><caption className="visually-hidden">先到先服务与 CP-SAT 对比</caption>
+      <thead><tr><th scope="col">指标</th><th scope="col">先到先服务</th><th scope="col">PAI Engine · CP-SAT</th></tr></thead>
+      <tbody>{rows.map(([k, a, b, better]) => <tr key={k}><th scope="row">{k}</th><td>{a}</td><td className={better ? "better" : undefined}>{b}</td></tr>)}</tbody></table></div>
+    <small className="muted">CP-SAT 总等待更长（{c.waitingMin} vs {f.waitingMin} min），因为它多接了 {c.admitted - f.admitted} 辆车，而先到先服务直接拒绝了它们。仿真记录，不代表现场放行。</small>
+  </Card>;
+}
+
+/** Released decision algorithms and the workflows that use them, first; running one is one click away. */
+function DecisionCatalog({ artifacts, workflows, onRun }: { artifacts: Summary[]; workflows: Workflow[]; onRun: (workflow: string) => void }) {
+  const released = artifacts.filter(a => a.state === "released");
+  const NAME: Record<string, string> = { "yard-admission": "场地准入与排队调度", "logistics-pdptw": "场外物流车辆路径（取送货）" };
+  return <Card title="决策算法" label="决策算法" aside={<small>已发布 {released.length} 个 · 只有已发布版本可被流程使用</small>}>
+    {released.length === 0 ? <Empty title="还没有已发布的决策算法">在下方“制品库”构建、验收并发布一个版本。</Empty>
+      : <ul className="algos">{released.map(a => { const base = a.id.split("@")[0]; const flows = workflows.filter(w => w.definition.nodes.some(n => n.type === "artifact" && (n as { artifact: string }).artifact === a.id));
+        return <li key={a.id}><div><strong>{NAME[base] ?? base}</strong> <code>{a.id}</code></div>
+          <div className="button-row">{flows.length ? flows.map(w => <button key={w.id} type="button" className="secondary compact" onClick={() => onRun(w.id)}>运行 {w.id}</button>)
+            : <small className="muted">还没有使用它的流程</small>}</div></li>; })}</ul>}
   </Card>;
 }
 

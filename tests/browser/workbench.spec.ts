@@ -956,7 +956,13 @@ test("artifact platform: build, benchmark, release, configure a workflow, run wi
   // Unique version per run: versions are immutable and the browser state directory persists between runs.
   const n = Date.now() % 100_000, ref = `logistics-pdptw@1.${Math.floor(n / 1000)}.${n % 1000}`;
   await page.goto("/#/artifacts");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("制品库与流程编排");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
+  // Decision algorithms and the twin come first: first rail entry, twin comparison and catalogue above the registry.
+  await expect(page.getByRole("navigation", { name: "生命周期" }).getByRole("link").first()).toHaveAccessibleName(/决策算法与孪生/);
+  await expect(page.getByRole("region", { name: "场地孪生" })).toContainText("传感器触发重排");
+  const order = await page.locator("main .card").evaluateAll(cards => cards.map(c => c.getAttribute("aria-label")));
+  expect(order.indexOf("场地孪生")).toBeLessThan(order.indexOf("制品库"));
+  expect(order.indexOf("流程运行")).toBeLessThan(order.indexOf("制品库"));
   await page.getByLabel("从可信源构建 logistics-pdptw 版本").fill(ref.split("@")[1]);
   await advance(page, ["构建草稿"]);
   const row = page.getByRole("list", { name: "制品版本" }).getByRole("listitem").filter({ hasText: ref });

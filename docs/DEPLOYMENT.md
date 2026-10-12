@@ -18,7 +18,7 @@
 
 独立 `g6.xlarge`（4 vCPU / 16 GiB / NVIDIA L4，2026-10-11 由 `t3.medium` 改来；机型由 CDK context `instanceType` 指定，默认仍是 `t3.medium`）运行单个工作台和同机的 Strands Decider，持久化卷 100 GiB（2026-10-12 由 60 GiB 在线扩容，容纳引擎镜像），系统卷 16 GiB。只有现有 ALB 安全组可以访问 4317，未开放 SSH；运维通过 SSM。实例公网地址仅用于出站安装和 AWS/登录签名公钥访问，不作为用户入口。
 
-Cognito 禁止自助注册，初始管理员由私人配置指定；角色默认拒绝：维护者按 Cognito subject 列在 `PAI_MAINTAINER_SUBS`（`apply-release` 从管理员用户名在实例上解析，缺失时新版本拒绝启动、旧版本继续运行），其他账号只有作为有效租户成员才可访问，且只能到达 `/api/v1/tenant/*`；租户成员由维护者在"制品与编排 → 邀请制租户"按邮箱邀请，邀请邮件由 Cognito 默认邮件发送（发件人 no-reply@verificationemail.com，每天约 50 封；要用自有域名需接 SES）。初始化使用 `MessageAction=SUPPRESS`，不会发送邮件或邀请。密码由 Secrets Manager 生成并保存于 `pai-workbench/admin`，不进入代码、实例环境或文档。应用用 `aws-jwt-verify` 验证 ALB 签名、签发者、客户端、过期时间和主体，拒绝只伪造身份头的请求。生产 Origin 精确限定为 `https://pai.oneai.host`。
+Cognito 禁止自助注册，初始管理员由私人配置指定；角色默认拒绝：维护者按 Cognito subject 列在 `PAI_MAINTAINER_SUBS`（`apply-release` 从管理员用户名在实例上解析，缺失时新版本拒绝启动、旧版本继续运行），其他账号只有作为有效租户成员才可访问，且只能到达 `/api/v1/tenant/*`；租户成员由维护者在"决策算法与孪生 → 邀请制租户"按邮箱邀请，邀请邮件由 Cognito 默认邮件发送（发件人 no-reply@verificationemail.com，每天约 50 封；要用自有域名需接 SES）。初始化使用 `MessageAction=SUPPRESS`，不会发送邮件或邀请。密码由 Secrets Manager 生成并保存于 `pai-workbench/admin`，不进入代码、实例环境或文档。应用用 `aws-jwt-verify` 验证 ALB 签名、签发者、客户端、过期时间和主体，拒绝只伪造身份头的请求。生产 Origin 精确限定为 `https://pai.oneai.host`。
 
 长原生任务返回 `202`、`Location` 和稳定任务身份，浏览器轮询原回执。重复请求不重新执行，重启后运行中任务保留为 interrupted。此机制避免修改共享 ALB 的 60 秒空闲超时。
 

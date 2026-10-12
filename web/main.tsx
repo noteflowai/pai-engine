@@ -168,11 +168,12 @@ function App() {
         </div>
       </header>
       <nav className="rail" aria-label="生命周期">
-        <ol>{VIEWS.map(v => { const stage = lifecycle?.stages.find(s => s.id === v.id); return <li key={v.id}>
+        <ol>{VIEWS.map(v => { const stage = lifecycle?.stages.find(s => s.id === v.id); return <li key={v.id} className={v.group ? "rail-grouped" : undefined}>
+          {v.group && <span className="rail-group" aria-hidden="true">{v.group}</span>}
           <a href={`#/${v.id}`} aria-current={route.view === v.id ? "page" : undefined} className={stage ? `s-${stage.status}` : "s-overview"}
             aria-label={`${v.index ? `${v.index} ` : ""}${v.label}${stage ? `：${DOT[stage.status]}，${stage.metric}` : ""}`}
             title={`${v.label}${stage ? ` · ${DOT[stage.status]} · ${stage.metric}` : ""}`}>
-            <span className="rail-index" aria-hidden="true">{v.index ?? "◎"}</span>
+            <span className="rail-index" aria-hidden="true">{v.index ?? (v.id === "artifacts" ? "◆" : "◎")}</span>
             <span className="rail-text"><span className="rail-label">{v.label}</span><span className="rail-short" aria-hidden="true">{v.short}</span>{stage && <small>{stage.metric}</small>}</span>
             {stage && <span className="rail-dot" title={DOT[stage.status]} />}</a></li>; })}</ol>
         <p className="rail-foot">反馈 → 复测 → 验证 形成闭环<br />记录仿真 · 合成场景 · 演示孪生<br />尚未现场验证</p>
