@@ -1,4 +1,5 @@
 import { TWIN } from "../twin-evidence";
+import { api } from "../api";
 import { useApp, VIEWS } from "../context";
 import { Card, Chip, Empty, ViewHeader, time, type Tone } from "../ui";
 import type { Outcome, TrackRecord } from "../../src/track-record";
@@ -51,9 +52,14 @@ export function Overview() {
     else if (ref && ["robot-review", "blender-scene", "factory-twin"].includes(ref.kind)) c.navigate(l.next.stage, { kind: ref.kind, id: ref.id });
     else c.navigate(l.next.stage);
   };
+  const archived = Boolean(c.data.projectArchives?.find(a => a.projectId === project.id)?.archived);
   return <>
-    <ViewHeader step="项目总览" title={project.title} description={project.intendedDecision}
-      actions={<><Chip tone="info">需求 v{project.revision}</Chip><Chip>SHA-256 {l.requirementDigest.slice(0, 10)}</Chip></>} />
+    <ViewHeader step={archived ? "项目总览 · 已归档" : "项目总览"} title={project.title} description={project.intendedDecision}
+      actions={<><Chip tone="info">需求 v{project.revision}</Chip><Chip>SHA-256 {l.requirementDigest.slice(0, 10)}</Chip>
+        <button type="button" className="secondary compact" onClick={() => {
+          const r = prompt(archived ? "取消归档的理由（至少 5 个字）" : "归档理由（只从默认任务列表隐藏，不删除任何记录；至少 5 个字）")?.trim();
+          if (r && r.length >= 5) void c.perform(async () => { await api(`/projects/${project.id}/archive`, { archived: !archived, reason: r }); await c.refresh(); }, archived ? "已取消归档。" : "已归档：任务列表默认不再显示，记录全部保留。");
+        }}>{archived ? "取消归档" : "归档"}</button></>} />
     <section className="decision-banner card" aria-label="决策算法与孪生">
       <div><p className="eyebrow">决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
       <button type="button" className="secondary" onClick={() => c.navigate("artifacts")}>打开 →</button>

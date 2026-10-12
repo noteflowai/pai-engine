@@ -14,6 +14,9 @@ async function advance(page: Page, names: string[], timeout = 60_000) {
     await expect(page.getByRole("alert")).toHaveCount(0);
   }
 }
+// These flows use the docked assistant at 1440 px: start as a user who has opened it before (the default is closed below
+// 1600 px; tests/browser/usability.spec.ts covers the defaults).
+test.beforeEach(async ({ page }) => { await page.addInitScript(() => { if (!localStorage.getItem("pai-assistant")) localStorage.setItem("pai-assistant", "open"); }); });
 const noOverflow = (page: Page) => expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
 test("authenticated workspace keeps sign-out and lifecycle navigation usable at phone width", async ({ page }) => {
@@ -25,7 +28,10 @@ test("authenticated workspace keeps sign-out and lifecycle navigation usable at 
   } }));
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  // The landing page is the decision platform; the design overview is one link away.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
   await expect(page.getByRole("link", { name: "退出登录" })).toBeVisible();
+  await page.goto("/#/overview");
   await expect(page.getByText("还没有评审任务")).toBeVisible();
   await expect(page.getByRole("complementary", { name: "AI 助手" })).toHaveCount(0);
   await noOverflow(page);

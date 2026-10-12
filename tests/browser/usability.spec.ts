@@ -266,6 +266,23 @@ test("project switcher: same-titled tasks told apart, search, keyboard, recent f
     await page.keyboard.press("Escape");
     await expect(trigger).toBeFocused();
   }
+  // Archived tasks leave the default list (search and the toggle still find them); nothing else changes.
+  await page.request.post(`/api/projects/${a.id}/archive`, { data: { archived: true, reason: "浏览器测试归档" } });
+  await page.goto("/#/overview"); await page.reload();
+  await page.getByRole("button", { name: /^选择已有任务：/ }).click();
+  const list = page.getByRole("listbox", { name: "任务" });
+  await expect(list.getByRole("option").filter({ hasText: a.id.slice(0, 6) })).toHaveCount(0);
+  await page.getByLabel(/显示已归档/).check();
+  await expect(list.getByRole("option").filter({ hasText: a.id.slice(0, 6) })).toContainText("已归档");
+});
+
+test("defaults: the decision platform is the landing page; the assistant starts closed below 1600 px and open above", async ({ page }) => {
+  for (const [w, open] of [[1440, 0], [1680, 1]] as const) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.goto("/"); await page.evaluate(() => localStorage.removeItem("pai-assistant")); await page.reload();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
+    await expect(page.getByRole("complementary", { name: "AI 助手" })).toHaveCount(open);
+  }
 });
 
 test("tenant member portal and no-access page: only the tenant's workflows, run, approve; accessible at phone width", async ({ page }) => {
