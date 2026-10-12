@@ -8,11 +8,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { configuration } from "../src/config.js";
 import { createApp } from "../src/server.js";
-import { AERO_REFERENCE, DEFAULT_AERO_REQUIREMENTS, type AeroReview } from "../src/aero.js";
+import { AERO_REFERENCE, DEFAULT_AERO_REQUIREMENTS, type AeroReview, aeroConfigured } from "../src/aero.js";
 import type { Feedback, Project } from "../src/contracts.js";
 
 const config = configuration();
-assert.ok(config.openfoamImage && config.cadquery && config.physicsPython, "Set PAI_OPENFOAM_IMAGE (name@sha256), npm run setup:cad and setup:physics");
+assert.ok(aeroConfigured(config), "Set PAI_OPENFOAM_IMAGE (name@sha256) or the PAISolver CFD job, npm run setup:cad and setup:physics");
 const state = join(config.state, "aero-e2e", randomUUID());
 const { app } = await createApp({ ...config, state });
 const host = `127.0.0.1:${config.port}`;
@@ -48,7 +48,7 @@ try {
   const summary = (r: AeroReview) => ({ verdict: r.verdict, cd: check(r, "drag-coefficient").observed, grid: check(r, "grid-convergence").observed,
     band: check(r, "iterative-convergence").observed, levels: r.cfd?.candidate?.levels.map(l => ({ level: l.level, cells: l.cells, cd: l.cd, seconds: l.seconds })) });
   const report = { schema: "pai-aero-e2e-1", checkedAt: new Date().toISOString(), result: "passed", seconds: Math.round((Date.now() - t0) / 1000), engine: fixed.candidate!.engine,
-    image: config.openfoamImage, reference: { cd: fixed.baseline!.checks.find(c => c.id === "drag-coefficient")!.observed }, steep: summary(steep), fixed: summary(fixed),
+    image: config.openfoamImage ?? `batch:${config.solverBatch?.cfdJobDefinition}`, reference: { cd: fixed.baseline!.checks.find(c => c.id === "drag-coefficient")!.observed }, steep: summary(steep), fixed: summary(fixed),
     evalarcBlocking: { steep: steep.diff?.blocking_changes, fixed: fixed.diff?.blocking_changes }, feedback: f?.status ?? "none (steep slant passed)" };
   await mkdir(join(config.state, "evidence"), { recursive: true });
   await writeFile(join(config.state, "evidence", "aero-e2e.json"), JSON.stringify(report, null, 2) + "\n");
