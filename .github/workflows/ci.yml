@@ -121,7 +121,7 @@ jobs:
               npm run test:cad-code
           - lane: physics
             tools: { blender: "true", sandbox: "true", cadquery: "true", physics: "true", botorch: "true", robots: "true" }
-            run: npm run test:fea && npm run test:robot && npm run test:optimize && npm run test:optimize-pillow && npm run test:package && npm run test:cad-sweep && node --env-file-if-exists=.state/demo.env --import tsx --test tests/surrogate.test.ts
+            run: npm run test:fea && npm run test:robot && npm run test:optimize && npm run test:optimize-pillow && npm run test:package && npm run test:cad-sweep && node --env-file-if-exists=.state/demo.env --import tsx --test tests/surrogate.test.ts tests/surrogate-artifact.test.ts
           - lane: cam
             tools: { cadquery: "true", cam: "true" }
             run: npm run test:cam
