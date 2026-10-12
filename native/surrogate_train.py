@@ -109,7 +109,7 @@ def train(a):
     def run(nets, rows):
         with torch.no_grad():
             return np.stack([n(xt[rows], gt[rows]).numpy() for n in nets])  # standardised model space
-    # Model selection: 5-fold CV on the training rows (one member, the same epochs); held-out rows are not touched.
+    # Model selection: 5-fold CV on the training rows (one member, a third of the epochs); held-out rows are not touched.
     train_rows = np.flatnonzero(tr)
     folds = np.array([int(hashlib.sha256(f"cv:{SEED}:{i}".encode()).hexdigest(), 16) % 5 for i in index[train_rows]])
     cv = {}
@@ -118,7 +118,7 @@ def train(a):
         for k in range(5):
             if not (folds == k).any() or (folds != k).sum() < 2:
                 continue  # tiny datasets (tests): an empty fold says nothing
-            nets = fit(cfg, train_rows[folds != k], 1, a.epochs)
+            nets = fit(cfg, train_rows[folds != k], 1, a.cv_epochs)
             err.append(((run(nets, train_rows[folds == k])[0] - zt[train_rows[folds == k]].numpy()) ** 2).mean())
         cv[cfg] = float(np.sqrt(np.mean(err)))
     chosen = min(cv, key=cv.get)
@@ -157,7 +157,7 @@ def train(a):
     (out / "weights.pt").write_bytes(buf.getvalue())
     result = {"schema": "pai-surrogate-benchmark-1", "rowsSha256": str(f["rowsSha256"][0]), "featuresSha256": hashlib.sha256(Path(a.features).read_bytes()).hexdigest(),
               "weightsSha256": hashlib.sha256(buf.getvalue()).hexdigest(), "train": int(tr.sum()), "heldOut": int(te.sum()),
-              "selection": {"method": "5-fold CV on training rows, log-space RMSE (standardised)", "cv": cv, "chosen": chosen},
+              "selection": {"method": "5-fold CV on training rows, log-space RMSE (standardised)", "cvEpochs": a.cv_epochs, "cv": cv, "chosen": chosen},
               "model": {"name": "PointNet deep ensemble", "config": chosen, "members": a.members, "epochs": a.epochs, "trainPoints": a.train_points, "seed": SEED, "threads": THREADS, "torch": torch.__version__},
               "surrogate": metrics(pred, true), "coverage2Sigma": cover, "gpBaseline": metrics(gp_pred, true),
               "inferenceMs": float(np.median(lat)), "trainSeconds": round(seconds, 1),
@@ -188,6 +188,7 @@ def predict(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["train", "predict"])
     ap.add_argument("--features", required=True); ap.add_argument("--output"); ap.add_argument("--weights")
-    ap.add_argument("--members", type=int, default=5); ap.add_argument("--epochs", type=int, default=300); ap.add_argument("--train-points", type=int, default=1024)
+    ap.add_argument("--members", type=int, default=5); ap.add_argument("--epochs", type=int, default=300); ap.add_argument("--train-points", type=int, default=512)
+    ap.add_argument("--cv-epochs", type=int, default=100)
     a = ap.parse_args()
     train(a) if a.mode == "train" else predict(a)
