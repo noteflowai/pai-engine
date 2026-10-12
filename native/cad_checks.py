@@ -18,6 +18,7 @@ from OCP.BRepExtrema import BRepExtrema_DistShapeShape
 from OCP.BRepTools import BRepTools
 from OCP.gp import gp_Pnt
 from OCP.TopAbs import TopAbs_IN
+from OCP.BRepAdaptor import BRepAdaptor_Surface  # a face's own cylinder, also on trimmed surfaces
 
 NEMA_PITCH, M3_CLEAR = 31.0, 3.4          # NEMA 17 bolt square; ISO 273 medium clearance
 DENSITY = 2.70e-3                          # 6061 aluminium, g/mm³
@@ -81,7 +82,7 @@ def measure(part, zc, req):
     for f in part.Faces():
         if f.geomType() != "CYLINDER":
             continue
-        cyl = f._geomAdaptor().Cylinder()
+        cyl = BRepAdaptor_Surface(f.wrapped).Cylinder()
         loc, direction = cyl.Axis().Location(), cyl.Axis().Direction()
         axis = "y" if abs(direction.Y()) > 0.99 else "z" if abs(direction.Z()) > 0.99 else "other"
         key = (axis, round(loc.X(), 3), round(loc.Z(), 3) if axis == "y" else round(loc.Y(), 3))
