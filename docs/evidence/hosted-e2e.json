@@ -1,0 +1,128 @@
+{
+  "schema": "pai-hosted-e2e-1",
+  "site": "https://pai.oneai.host",
+  "build": "v0.9.0 · 1655225",
+  "checkedAt": "2026-10-12",
+  "method": "tools/hosted_e2e.sh on the hosted instance: service user, service environment, engine containers, throw-away state (live data untouched)",
+  "runtime": {
+    "instanceType": "g6.xlarge",
+    "engineContainers": "logistics,cad,physics,blender,newton,robots,decider",
+    "gpu": "NVIDIA L4 via CDI",
+    "batch": "FEA points, CFD, CAM on AWS Batch (FEA image FROM the physics engine image)"
+  },
+  "suites": {
+    "cad-e2e": "passed",
+    "fea-e2e": {
+      "result": "passed",
+      "deflectionMm": [
+        0.0478,
+        0.095
+      ],
+      "stressMPa": [
+        49,
+        92.1
+      ]
+    },
+    "pillow-e2e": {
+      "result": "passed",
+      "deflectionMm": [
+        0.0052,
+        0.0108
+      ],
+      "stressMPa": [
+        14.8,
+        20.3
+      ]
+    },
+    "robot-e2e": {
+      "result": "passed",
+      "cycleS": [
+        5.897,
+        4.598
+      ]
+    },
+    "blender-e2e": "passed",
+    "plant-e2e": {
+      "result": "passed",
+      "aisleM": [
+        2.08,
+        2.48
+      ]
+    },
+    "optimize-e2e": {
+      "result": "passed",
+      "backend": "AWS Batch",
+      "seconds": 311
+    },
+    "native-e2e": "bundle verified",
+    "artifact-e2e": "passed",
+    "yard-e2e": {
+      "result": "passed",
+      "peakAdmitted": 15,
+      "peakPriority": 34
+    },
+    "release-package-e2e": "passed",
+    "cam-e2e": {
+      "result": "passed",
+      "runner": "freecad-cam-batch",
+      "cycleMinutes": 94.59
+    },
+    "aero-e2e": {
+      "result": "passed",
+      "verdicts": [
+        "rejected",
+        "accepted-aero-body"
+      ],
+      "cd": [
+        0.23408,
+        0.24898,
+        0.28251
+      ]
+    }
+  },
+  "tenant": {
+    "tenant": "glay",
+    "transport": "OAuth client credentials over the internet",
+    "workflow": "site-admission-plan@1",
+    "result": {
+      "admitted": 15,
+      "priorityAdmitted": 34,
+      "waitingMin": 258,
+      "verifier": "valid-schedule"
+    },
+    "approval": "tenant decision (synthetic)",
+    "foreignRun": 404,
+    "billed": false
+  },
+  "ui": {
+    "views": 14,
+    "maxOverflowPx": 0,
+    "widths": [
+      1440,
+      390
+    ],
+    "pageErrors": 0
+  },
+  "decider": {
+    "container": true,
+    "outOfScope": {
+      "confidence": 0.972,
+      "modelCalled": false
+    }
+  },
+  "foundAndFixed": [
+    "Batch FEA image: job script directory unreadable by the job user (PR #55); the hosted optimize e2e caught it as an infeasible reference",
+    "harness: sibling script imports, no docs/ in releases, Batch runners in CAM/CFD e2e (PR #56, #57)"
+  ],
+  "infra": {
+    "albRulesUnchanged": true,
+    "wordPressPublicStatus": 200,
+    "targetHealth": "healthy",
+    "dataVolumeGiB": 100
+  },
+  "aiLedger": {
+    "finished": 27,
+    "uncertain": 4,
+    "note": "no reset, no replay"
+  }
+}
