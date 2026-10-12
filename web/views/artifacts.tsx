@@ -54,7 +54,7 @@ export function Artifacts() {
   const yardRun = Boolean(selected?.definition.nodes.some(n => n.type === "artifact" && (n as { artifact: string }).artifact.startsWith("yard-admission@")));
 
   return <>
-    <ViewHeader step="决策平台 · 决策算法与孪生" title="决策算法与物理 AI 孪生"
+    <ViewHeader step="物理 AI 决策平台 · 决策算法与孪生" title="决策算法与物理 AI 孪生"
       description="场地准入、车辆路径等决策算法以不可变、自带验收基准的制品交付，在孪生里由传感器事件触发重排，每份方案都经独立核验器检查后才被采用；流程把算法、核验和人工确认串起来，按租户隔离运行并记录用量。示例全部是合成数据。" />
     <TwinHero />
     <DecisionCatalog artifacts={artifacts} workflows={workflows} onRun={id => { setWorkflowId(id); document.getElementById("run-card")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />

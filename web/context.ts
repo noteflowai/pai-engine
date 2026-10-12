@@ -34,7 +34,7 @@ export type State = {
 };
 /** Navigation order: decision algorithms and twins first (the platform's product), then the design lifecycle. */
 export const VIEWS: { id: ViewId; label: string; short: string; index?: number; group?: string }[] = [
-  { id: "artifacts", label: "决策算法与孪生", short: "决策", group: "决策平台" },
+  { id: "artifacts", label: "决策算法与孪生", short: "决策", group: "物理 AI 决策平台" },
   { id: "overview", label: "项目总览", short: "总览", group: "设计生命周期" },
   { id: "requirements", label: "需求冻结", short: "需求", index: 1 },
   { id: "design", label: "候选设计", short: "设计", index: 2 },

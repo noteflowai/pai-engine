@@ -39,7 +39,7 @@ export function Overview() {
   if (!project || !l) return <>
     <ViewHeader step="项目总览" title="让设计决策有证据" description="从冻结需求到原生验证、失败回放、反馈复测和可核验交付，每一步都绑定证据。" />
     <section className="decision-banner card" aria-label="决策算法与孪生">
-      <div><p className="eyebrow">决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
+      <div><p className="eyebrow">物理 AI 决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
       <button type="button" className="secondary" onClick={() => c.navigate("artifacts")}>打开 →</button>
     </section>
     <Empty title="还没有评审任务" action={<button type="button" onClick={() => c.navigate("requirements", { new: "1" })}>新建评审任务</button>}>
@@ -61,7 +61,7 @@ export function Overview() {
           if (r && r.length >= 5) void c.perform(async () => { await api(`/projects/${project.id}/archive`, { archived: !archived, reason: r }); await c.refresh(); }, archived ? "已取消归档。" : "已归档：任务列表默认不再显示，记录全部保留。");
         }}>{archived ? "取消归档" : "归档"}</button></>} />
     <section className="decision-banner card" aria-label="决策算法与孪生">
-      <div><p className="eyebrow">决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
+      <div><p className="eyebrow">物理 AI 决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
       <button type="button" className="secondary" onClick={() => c.navigate("artifacts")}>打开 →</button>
     </section>
     <section className="next-step" aria-label="下一步">
