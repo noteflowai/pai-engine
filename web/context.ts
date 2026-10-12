@@ -31,15 +31,16 @@ export type State = {
     physics?: false | { fea: string; defaultStructural: StructuralRequirements; familyStructural?: Record<string, StructuralRequirements>; optimize: { engine: string; defaultBudget: { initial: number; rounds: number; perRound: number }; maxEvaluations: number; strategies?: string[]; botorch?: string | null } };
     factoryTwin?: { defaultCriteria: FactoryCriteriaValues; reviewedSample?: string } };
 };
-export const VIEWS: { id: ViewId; label: string; short: string; index?: number }[] = [
-  { id: "overview", label: "项目总览", short: "总览" },
+/** Navigation order: decision algorithms and twins first (the platform's product), then the design lifecycle. */
+export const VIEWS: { id: ViewId; label: string; short: string; index?: number; group?: string }[] = [
+  { id: "artifacts", label: "决策算法与孪生", short: "决策", group: "决策平台" },
+  { id: "overview", label: "项目总览", short: "总览", group: "设计生命周期" },
   { id: "requirements", label: "需求冻结", short: "需求", index: 1 },
   { id: "design", label: "候选设计", short: "设计", index: 2 },
   { id: "validate", label: "原生验证", short: "验证", index: 3 },
   { id: "evidence", label: "失败回放", short: "证据", index: 4 },
   { id: "feedback", label: "反馈复测", short: "反馈", index: 5 },
   { id: "deliver", label: "发布交付", short: "发布", index: 6 },
-  { id: "artifacts", label: "制品与编排", short: "制品" },
 ];
 export interface Route { view: ViewId; params: URLSearchParams }
 export interface Ctx {

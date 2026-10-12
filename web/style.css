@@ -816,3 +816,13 @@ body.viewport-focus { overflow: hidden; }
 .tenant-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .tenant-runs li { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
 @media (max-width: 600px) { .tenant-who { display: none; } }
+
+/* Rail groups: 决策平台 first, then 设计生命周期 (web/context.ts VIEWS). */
+.rail-group { display: block; margin: 10px 10px 4px; font-size: 10px; letter-spacing: 1px; color: var(--ink-3); font-weight: 700; }
+.rail-grouped:first-child .rail-group { margin-top: 2px; }
+.rail-collapsed .rail-group { display: none; }
+.twin-hero .kpi { width: 100%; }
+.twin-hero .kpi td.better { font-weight: 800; color: var(--brand); }
+.decision-banner { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.algos { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.algos li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }

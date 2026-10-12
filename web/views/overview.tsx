@@ -1,3 +1,4 @@
+import { TWIN } from "../twin-evidence";
 import { useApp, VIEWS } from "../context";
 import { Card, Chip, Empty, ViewHeader, time, type Tone } from "../ui";
 import type { Outcome, TrackRecord } from "../../src/track-record";
@@ -36,6 +37,10 @@ export function Overview() {
   const { project, lifecycle: l } = c;
   if (!project || !l) return <>
     <ViewHeader step="项目总览" title="让设计决策有证据" description="从冻结需求到原生验证、失败回放、反馈复测和可核验交付，每一步都绑定证据。" />
+    <section className="decision-banner card" aria-label="决策算法与孪生">
+      <div><p className="eyebrow">决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
+      <button type="button" className="secondary" onClick={() => c.navigate("artifacts")}>打开 →</button>
+    </section>
     <Empty title="还没有评审任务" action={<button type="button" onClick={() => c.navigate("requirements", { new: "1" })}>新建评审任务</button>}>
       先冻结验收需求。之后可以在“候选设计”中提交机器人记录、Blender 场景或工厂孪生候选，或在 AI 助手中描述意图。</Empty>
   </>;
@@ -49,6 +54,10 @@ export function Overview() {
   return <>
     <ViewHeader step="项目总览" title={project.title} description={project.intendedDecision}
       actions={<><Chip tone="info">需求 v{project.revision}</Chip><Chip>SHA-256 {l.requirementDigest.slice(0, 10)}</Chip></>} />
+    <section className="decision-banner card" aria-label="决策算法与孪生">
+      <div><p className="eyebrow">决策平台</p><h2>决策算法与物理 AI 孪生</h2><p>场地准入、车辆路径等决策算法：孪生里传感器触发重排，CP-SAT 比先到先服务多接 {TWIN.cpSat.admitted - TWIN.fcfs.admitted} 辆车、平均在场 {TWIN.fcfs.avgTurnaroundMin} → {TWIN.cpSat.avgTurnaroundMin} min。</p></div>
+      <button type="button" className="secondary" onClick={() => c.navigate("artifacts")}>打开 →</button>
+    </section>
     <section className="next-step" aria-label="下一步">
       <div><p className="eyebrow">下一步 · {VIEWS.find(v => v.id === l.next.stage)?.label}</p><h2>{l.next.label}</h2><p>{l.next.detail}</p></div>
       <button type="button" onClick={go}>前往 →</button>
