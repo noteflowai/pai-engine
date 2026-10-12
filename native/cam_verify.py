@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import cadquery as cq
 from scipy import ndimage
+from OCP.BRepAdaptor import BRepAdaptor_Surface  # a face's own cylinder, also on trimmed surfaces
 
 p = argparse.ArgumentParser()
 for k in ("step", "cam", "shop", "output"):
@@ -47,7 +48,7 @@ def filled(shape, holes_to_fill):
     for f in shape.Faces():
         if f.geomType() != "CYLINDER":
             continue
-        c = f._geomAdaptor().Cylinder(); d = c.Axis().Direction(); o = c.Axis().Location()
+        c = BRepAdaptor_Surface(f.wrapped).Cylinder(); d = c.Axis().Direction(); o = c.Axis().Location()
         axis = "XYZ"[int(np.argmax([abs(d.X()), abs(d.Y()), abs(d.Z())]))]
         if not any(abs(2 * c.Radius() - h["diameterMm"]) < 0.05 and h["axis"] == axis for h in holes_to_fill):
             continue
@@ -285,7 +286,7 @@ for idx, setup in enumerate(cam["setups"]):
             for f in part.Faces():
                 if f.geomType() != "CYLINDER":
                     continue
-                c = f._geomAdaptor().Cylinder()
+                c = BRepAdaptor_Surface(f.wrapped).Cylinder()
                 if abs(2 * c.Radius() - h["diameterMm"]) > 0.05:
                     continue
                 F = np.array([[v.x, v.y, v.z] for v in f.tessellate(0.01, 0.1)[0]]) @ R.T

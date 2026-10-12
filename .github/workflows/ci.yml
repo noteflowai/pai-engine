@@ -115,6 +115,7 @@ jobs:
             tools: { blender: "true", sandbox: "true", cadquery: "true", logistics: "true" }
             run: |
               npm run test:blender && npm run test:cad && npm run test:pillow && npm run test:artifacts && npm run test:yard
+              node --env-file-if-exists=.state/demo.env --import tsx --test tests/cad-checks.test.ts
               python3 tools/slim_cadquery_lock.py --python .state/tools/cadquery-2.8.0/bin/python --check
               python3 -m pip install -q botocore==1.43.82 && python3 -m unittest discover -s tests/agentcore -p 'test_*.py'
               npm run test:cad-code

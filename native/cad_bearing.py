@@ -30,6 +30,7 @@ from OCP.gp import gp_Pnt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cad_checks import AL, DENSITY, Stages, versions  # noqa: E402
+from OCP.BRepAdaptor import BRepAdaptor_Surface  # a face's own cylinder, also on trimmed surfaces
 
 BEARING = {"designation": "6202", "d": 15.0, "D": 35.0, "B": 11.0, "abutment": 1.6}   # ISO 15 / ISO 355 abutment (r_as)
 H7 = (0.0, 0.025)                                  # ISO 286 H7 for 30-50 mm
@@ -118,7 +119,7 @@ def measure(part, h, req):
     cyl = []
     for f in part.Faces():
         if f.geomType() == "CYLINDER":
-            c = f._geomAdaptor().Cylinder(); ax = c.Axis(); dr, lo = ax.Direction(), ax.Location()
+            c = BRepAdaptor_Surface(f.wrapped).Cylinder(); ax = c.Axis(); dr, lo = ax.Direction(), ax.Location()
             axis = "y" if abs(dr.Y()) > 0.99 else "z" if abs(dr.Z()) > 0.99 else "other"
             cyl.append({"face": f, "axis": axis, "d": round(2 * c.Radius(), 4), "x": lo.X(), "y": lo.Y(), "z": lo.Z(), "bb": exact_box(f)})
     along = [c for c in cyl if c["axis"] == "y"]
