@@ -42,7 +42,7 @@ cd ..
 python3 tools/aws_operator.py apply-release
 ```
 
-运行版本：打包时写入 `.build-info.json`（`package.json` 版本、源提交、打包时间）。登录后每个页面左上角（品牌旁）显示 `v<版本> · <短提交>`（悬停看完整提交与发布包摘要），也可读 `GET /api/version`（需要登录）；`apply-release` 成功时同样输出版本和提交。短提交与 `origin/main` 一致即为最新发布。`/healthz` 不返回版本。
+运行版本：打包时写入 `.build-info.json`（`package.json` 版本、源提交、打包时间）。登录后每个页面左上角（品牌旁）显示 `v<版本>`（悬停看完整提交、打包时间与发布包摘要），也可读 `GET /api/version`（需要登录）；`apply-release` 成功时同样输出版本和提交。悬停所示提交与 `origin/main` 一致即为最新发布。`/healthz` 不返回版本。
 
 部署包使用显式文件白名单，不包括 `.state`、数据库、提示词、私人控制器、浏览器会话或本地生成的证据。S3 上传包、Node 和 Blender 下载均验证 SHA-256。实例安装固定版本的公开依赖，不初始化模型预算账本。
 

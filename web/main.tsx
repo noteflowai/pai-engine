@@ -195,12 +195,12 @@ function App() {
 }
 /** Running version: package version + short source commit, so a deploy can be matched to main at a glance. */
 function BuildBadge({ build }: { build: NonNullable<State["build"]> }) {
-  const short = build.commit?.slice(0, 7) ?? "未知提交";
   const detail = [`版本 v${build.version}`, `提交 ${build.commit ?? "未知"}${build.dirty ? "（有未提交修改）" : ""}`,
     build.packagedAt ? `打包于 ${new Date(build.packagedAt).toLocaleString()}` : build.source === "checkout" ? "本地工作区" : "",
     build.releaseDigest ? `发布包 ${build.releaseDigest.slice(0, 12)}` : ""].filter(Boolean).join("\n");
-  return <span className="build-badge" title={detail} aria-label={detail.replace(/\n/g, "，")}>
-    v{build.version} · <code>{short}{build.dirty ? "*" : ""}</code></span>;
+  // Only the version is shown; the commit, package time and release digest stay one hover (or screen reader) away.
+  return <span className="build-badge" title={detail} aria-label={detail.replace(/\n/g, "，")} data-commit={build.commit?.slice(0, 7)}>
+    v{build.version}{build.dirty ? "*" : ""}</span>;
 }
 // Apply the stored theme before the first render (no light flash, and correct even while the workspace loads).
 {
