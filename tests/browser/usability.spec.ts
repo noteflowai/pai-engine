@@ -283,6 +283,9 @@ test("defaults: the decision platform is the landing page; the assistant starts 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
     await expect(page.getByRole("complementary", { name: "AI 助手" })).toHaveCount(open);
   }
+  // The logo also leads home (the decision page), from anywhere.
+  await page.goto("/#/requirements"); await page.getByRole("link", { name: /PAI Engine 首页/ }).click();
+  await expect(page).toHaveURL(/#\/artifacts$/);
 });
 
 test("tenant member portal and no-access page: only the tenant's workflows, run, approve; accessible at phone width", async ({ page }) => {

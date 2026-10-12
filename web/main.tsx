@@ -149,7 +149,7 @@ function App() {
     <a className="skip-link" href="#main" onClick={e => { e.preventDefault(); (document.querySelector("main h1") as HTMLElement | null)?.focus(); }}>跳到主要内容</a>
     <div className={`app ${assistant ? "with-assistant" : ""} ${railCollapsed ? "rail-collapsed" : ""}`}>
       <header className="topbar">
-        <div className="brand-wrap"><a className="brand" href="#/overview" aria-label="PAI Design Workbench 总览"><span className="brand-mark">P</span><span>PAI<small>DESIGN WORKBENCH</small></span></a>
+        <div className="brand-wrap"><a className="brand" href="#/artifacts" aria-label="PAI Engine 首页：决策算法与孪生"><span className="brand-mark">P</span><span>PAI<small>ENGINE</small></span></a>
           {ctx.data.build && <BuildBadge build={ctx.data.build} />}</div>
         <div className="project-switch">
           {(ctx.data.projects.length > 0 || runs.length > 0) && <ProjectSwitcher projects={ctx.data.projects} archived={new Set((ctx.data.projectArchives ?? []).filter(a => a.archived).map(a => a.projectId))} runs={runs} lifecycles={ctx.data.lifecycles} current={project}
