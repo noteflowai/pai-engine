@@ -276,13 +276,16 @@ test("project switcher: same-titled tasks told apart, search, keyboard, recent f
   await expect(list.getByRole("option").filter({ hasText: a.id.slice(0, 6) })).toContainText("已归档");
 });
 
-test("defaults: the decision platform is the landing page; the assistant starts closed below 1600 px and open above", async ({ page }) => {
+test("defaults: the decision platform is the landing page; the assistant starts closed below 1600 px and open above", async ({ page, browser }) => {
+  // A fresh context per width: no saved choice can leak between widths (the app saves the choice after mounting).
   for (const [w, open] of [[1440, 0], [1680, 1]] as const) {
-    await page.setViewportSize({ width: w, height: 900 });
-    await page.goto("/"); await page.evaluate(() => localStorage.removeItem("pai-assistant")); await page.reload();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
-    await expect(page.getByRole("complementary", { name: "AI 助手" })).toHaveCount(open);
+    const fresh = await (await browser.newContext({ viewport: { width: w, height: 900 } })).newPage();
+    await fresh.goto("/");
+    await expect(fresh.getByRole("heading", { level: 1 })).toHaveText("决策算法与物理 AI 孪生");
+    await expect(fresh.getByRole("complementary", { name: "AI 助手" })).toHaveCount(open);
+    await fresh.context().close();
   }
+  await page.setViewportSize({ width: 1440, height: 900 });
   // The logo also leads home (the decision page), from anywhere.
   await page.goto("/#/requirements"); await page.getByRole("link", { name: /PAI Engine 首页/ }).click();
   await expect(page).toHaveURL(/#\/artifacts$/);

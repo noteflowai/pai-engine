@@ -82,6 +82,8 @@ def train(a):
     x, index = f["x"], f["index"]
     y = np.stack([f[k] for k in TARGETS], axis=1).astype(np.float64)
     tr, te = split(index)
+    if te.sum() < 1 or tr.sum() < 5:
+        raise SystemExit(f"dataset too small for a held-out benchmark ({int(tr.sum())} train / {int(te.sum())} held-out rows)")
     z = encode(y); mu, sd = z[tr].mean(0), z[tr].std(0) + 1e-9
     zt = torch.tensor((z - mu) / sd, dtype=torch.float32); xt = torch.tensor(x)
     gt = torch.tensor(f["g"])
@@ -148,7 +150,8 @@ def train(a):
     # Baseline: GP on the recipe parameters, same split.
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
-    P = f["parameters"]; varying = P[tr].std(0) > 0; P = P[:, varying]
+    # Constant recipe values (e.g. 35.012) can have a float std of ~1e-15: decide by range, not by std.
+    P = f["parameters"]; varying = (P[tr].max(0) - P[tr].min(0)) > 1e-9; P = P[:, varying]
     plo, phi = P[tr].min(0), P[tr].max(0); Pn = (P - plo) / (phi - plo)
     gp_pred = np.zeros_like(true)
     for j in range(3):
