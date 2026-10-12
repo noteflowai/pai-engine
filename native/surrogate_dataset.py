@@ -41,35 +41,55 @@ def plan(spec):
     return [{**p, **fam["fixed"]} for p in pts]
 
 
-def measure(spec, batch, folder, index, params):
-    """One native measurement on Batch; returns the row (status measured or failed)."""
+def local_job(spec, folder, params):
+    """The same job script on this machine (tests and development): solver_job.py --local, same outputs and checks."""
+    import subprocess
+    (folder / "input.json").write_text(json.dumps({"family": spec["family"], "parameters": params, "requirements": spec["requirements"], "structural": spec["structural"]}))
+    r = subprocess.run([sys.executable, "-I", str(HERE / "solver_job.py"), "--local", str(folder)], capture_output=True, text=True, timeout=1800)
+    if r.returncode != 0:
+        raise RuntimeError(f"local job exited {r.returncode}: {(r.stderr.strip().splitlines() or [''])[-1][:200]}")
+    result = json.loads((folder / "result.json").read_text())
+    for name, digest in result.get("files", {}).items():
+        if sha((folder / name).read_bytes()) != digest:
+            raise RuntimeError(f"{name} differs from the job's digest")
+    return result
+
+
+def batch_job(spec, batch, folder, index, row):
+    """The point as one AWS Batch FEA job; downloads and digest-checks its files."""
     import boto3
+    s3, client = boto3.client("s3", region_name=batch["region"]), boto3.client("batch", region_name=batch["region"])
+    prefix = f"jobs/surrogate-{spec['id']}/{index:04d}/"
+    s3.put_object(Bucket=batch["bucket"], Key=prefix + "input.json", Body=json.dumps({"family": spec["family"], "parameters": row["parameters"],
+        "requirements": spec["requirements"], "structural": spec["structural"]}).encode())
+    job = client.submit_job(jobName=f"pai-surrogate-{spec['id']}-{index:04d}"[:128], jobQueue=batch["queue"], jobDefinition=batch["jobDefinition"],
+                            containerOverrides={"command": ["--bucket", batch["bucket"], "--prefix", prefix]}, tags={"pai-run": f"surrogate-{spec['id']}"})
+    row["jobId"] = job["jobId"]
+    deadline = time.monotonic() + 1800
+    while True:
+        st = client.describe_jobs(jobs=[job["jobId"]])["jobs"][0]
+        if st["status"] in ("SUCCEEDED", "FAILED"):
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"job still {st['status']} at the deadline; not resubmitted")
+        time.sleep(10)
+    if st["status"] != "SUCCEEDED":
+        raise RuntimeError(f"job {st.get('statusReason', 'failed')[:160]}")
+    result = json.loads(s3.get_object(Bucket=batch["bucket"], Key=prefix + "result.json")["Body"].read())
+    for name, digest in result.get("files", {}).items():
+        body = s3.get_object(Bucket=batch["bucket"], Key=prefix + name)["Body"].read()
+        if sha(body) != digest:
+            raise RuntimeError(f"{name} differs from the job's digest")
+        (folder / name).write_bytes(body)
+    return result
+
+
+def measure(spec, batch, folder, index, params):
+    """One native measurement (AWS Batch, or the local job when batch is None); returns the row (measured or failed)."""
     row = {"index": index, "parameters": params, "status": "failed"}
     started = time.monotonic()
     try:
-        s3, client = boto3.client("s3", region_name=batch["region"]), boto3.client("batch", region_name=batch["region"])
-        prefix = f"jobs/surrogate-{spec['id']}/{index:04d}/"
-        s3.put_object(Bucket=batch["bucket"], Key=prefix + "input.json", Body=json.dumps({"family": spec["family"], "parameters": params,
-            "requirements": spec["requirements"], "structural": spec["structural"]}).encode())
-        job = client.submit_job(jobName=f"pai-surrogate-{spec['id']}-{index:04d}"[:128], jobQueue=batch["queue"], jobDefinition=batch["jobDefinition"],
-                                containerOverrides={"command": ["--bucket", batch["bucket"], "--prefix", prefix]}, tags={"pai-run": f"surrogate-{spec['id']}"})
-        row["jobId"] = job["jobId"]
-        deadline = time.monotonic() + 1800
-        while True:
-            st = client.describe_jobs(jobs=[job["jobId"]])["jobs"][0]
-            if st["status"] in ("SUCCEEDED", "FAILED"):
-                break
-            if time.monotonic() > deadline:
-                raise RuntimeError(f"job still {st['status']} at the deadline; not resubmitted")
-            time.sleep(10)
-        if st["status"] != "SUCCEEDED":
-            raise RuntimeError(f"job {st.get('statusReason', 'failed')[:160]}")
-        result = json.loads(s3.get_object(Bucket=batch["bucket"], Key=prefix + "result.json")["Body"].read())
-        for name, digest in result.get("files", {}).items():
-            body = s3.get_object(Bucket=batch["bucket"], Key=prefix + name)["Body"].read()
-            if sha(body) != digest:
-                raise RuntimeError(f"{name} differs from the job's digest")
-            (folder / name).write_bytes(body)
+        result = local_job(spec, folder, params) if batch is None else batch_job(spec, batch, folder, index, row)
         v = result.get("versions", {})
         if v.get("gmsh") != PINS["gmsh"] or PINS["ccx"] not in v.get("ccx", "") or v.get("cadquery") != PINS["cadquery"]:
             raise RuntimeError(f"solver versions {v} differ from the pins {PINS}")
@@ -103,6 +123,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True); ap.add_argument("--output", required=True)
     ap.add_argument("--concurrency", type=int, default=12); ap.add_argument("--plan-only", action="store_true")
+    ap.add_argument("--backend", choices=["batch", "local"], default="batch", help="local: solver_job.py on this machine (tests)")
     ap.add_argument("--limit", type=int, help="measure only the first N planned points (smoke run; the manifest records it)")
     a = ap.parse_args()
     spec_bytes = Path(a.spec).read_bytes(); spec = json.loads(spec_bytes)
@@ -112,7 +133,7 @@ def main():
     if a.plan_only:
         print(json.dumps({"id": spec["id"], "points": len(points), "planSha256": sha(json.dumps(points, sort_keys=True).encode()), "first": points[:3]}))
         return
-    batch = {"queue": os.environ["PAI_SOLVER_QUEUE"], "jobDefinition": os.environ["PAI_SOLVER_JOB_DEFINITION"],
+    batch = None if a.backend == "local" else {"queue": os.environ["PAI_SOLVER_QUEUE"], "jobDefinition": os.environ["PAI_SOLVER_JOB_DEFINITION"],
              "bucket": os.environ["PAI_SOLVER_BUCKET"], "region": os.environ.get("PAI_SOLVER_REGION", "ap-northeast-1")}
     out = Path(a.output); (out / "points").mkdir(parents=True, exist_ok=True)
     (out / "spec.json").write_bytes(spec_bytes)
