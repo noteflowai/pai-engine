@@ -52,3 +52,19 @@ test("measure (local job) → featurize → train → predict: reproducible end 
     assert.ok(f1.equals(f2), "features are deterministic");
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+// Found on the hosted pillow dataset (2026-10-13): constant recipe values with a float std of ~1e-15 made the GP baseline
+// divide by zero and the whole training run fail after an hour.
+test("pillow family trains end to end (constant recipe values in the GP baseline)", { skip: PY && process.env.PAI_CADQUERY_PYTHON && process.env.PAI_CCX ? false : "needs the physics and CadQuery toolchains" }, async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "pai-surrogate-pillow-"));
+  const run = (py: string, args: string[]) => execFileSync(py, ["-I", "-W", "ignore", ...args], { encoding: "utf8", timeout: 900_000 });
+  try {
+    run(PY!, ["native/surrogate_dataset.py", "--spec", "native/surrogate-datasets/fea-pillow-v1.json", "--output", join(dir, "d"), "--backend", "local", "--limit", "24", "--concurrency", "3"]);
+    run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--dataset", join(dir, "d"), "--output", join(dir, "f.npz")]);
+    const b = JSON.parse(run(PY!, ["native/surrogate_train.py", "train", "--features", join(dir, "f.npz"), "--output", join(dir, "m"), "--members", "1", "--epochs", "2", "--cv-epochs", "1"]).trim().split("\n").at(-1)!);
+    assert.ok(b.weightsSha256 && b.gp, JSON.stringify(b));
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
