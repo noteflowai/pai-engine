@@ -121,7 +121,7 @@ test("agents read only the kinds /api/agent/state already exposes; artifact file
 test("action parameters are the very schemas the routes parse", async () => {
   const src = (await sources()).join("\n");
   const modules = ["contracts", "scenes", "cad", "sweep", "optimize", "inspection", "aero", "factory", "assistant", "ai", "autonomy", "autopilot", "proposals",
-    "release", "signing", "bundle", "artifacts/registry", "artifacts/workflows", "tenants", "members"];
+    "release", "signing", "bundle", "artifacts/registry", "artifacts/workflows", "tenants", "members", "project-archive"];
   const exported: [string, unknown][] = [];
   for (const m of modules) exported.push(...Object.entries(await import(`../src/${m}.js`) as Record<string, unknown>));
   for (const a of ACTION_TYPES.filter(x => x.parameters)) {

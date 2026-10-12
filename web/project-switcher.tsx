@@ -26,10 +26,12 @@ type Row = { kind: "project"; id: string; project: Project; group: string } | { 
  * tasks and every task newest first. Each row shows revision, release state, creation time and a short id, so tasks
  * with the same title can be told apart.
  */
-export function ProjectSwitcher({ projects, runs = [], lifecycles, current, onSelect, onSelectRun }: {
-  projects: Project[]; runs?: RunSummary[]; lifecycles?: Record<string, Lifecycle>; current?: Project; onSelect(id: string): void; onSelectRun?(id: string): void;
+export function ProjectSwitcher({ projects: all, archived = new Set<string>(), runs = [], lifecycles, current, onSelect, onSelectRun }: {
+  projects: Project[]; archived?: Set<string>; runs?: RunSummary[]; lifecycles?: Record<string, Lifecycle>; current?: Project; onSelect(id: string): void; onSelectRun?(id: string): void;
 }) {
-  const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [active, setActive] = useState(0);
+  const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [active, setActive] = useState(0), [showArchived, setShowArchived] = useState(false);
+  // Archived tasks are hidden unless asked for (search always finds them); the current task is always listed.
+  const projects = useMemo(() => all.filter(p => showArchived || query.trim() || !archived.has(p.id) || p.id === current?.id), [all, archived, showArchived, query, current?.id]);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), list = useRef<HTMLUListElement>(null);
   const rows: Row[] = useMemo(() => {
     const P = (project: Project, group: string): Row => ({ kind: "project", id: project.id, project, group });
@@ -45,7 +47,7 @@ export function ProjectSwitcher({ projects, runs = [], lifecycles, current, onSe
     // Runs before the long project list so they are reachable without scrolling; the newest 8 (all are searchable).
     return [...recent.map(p => P(p, "最近打开")), ...flows.slice(0, 8).map(r => R(r, `流程运行 · 场外物流与场地（${runs.length}，最新在前）`)),
       ...newest.filter(p => !seen.has(p.id)).map(p => P(p, `全部设计任务（${projects.length}，最新在前）`))];
-  }, [projects, runs, query, open]); // re-read recent tasks each time it opens
+  }, [projects, runs, query, open, archived]); // re-read recent tasks each time it opens
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
@@ -63,7 +65,7 @@ export function ProjectSwitcher({ projects, runs = [], lifecycles, current, onSe
     {open && <div className="switcher-pop" role="dialog" aria-label="切换任务">
       <input autoFocus value={query} role="combobox" aria-expanded="true" aria-controls="switcher-list" aria-autocomplete="list"
         aria-activedescendant={rows[active] ? `sw-${rows[active].id}` : undefined} aria-label="搜索任务（标题、决策、流程或编号）"
-        placeholder={`搜索 ${projects.length} 个设计任务与 ${runs.length} 次流程运行…`} onChange={e => { setQuery(e.target.value); setActive(0); }}
+        placeholder={`搜索 ${all.length} 个设计任务与 ${runs.length} 次流程运行…`} onChange={e => { setQuery(e.target.value); setActive(0); }}
         onKeyDown={e => {
           if (e.key === "Escape") { e.preventDefault(); setOpen(false); trigger.current?.focus(); }
           if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => Math.min(a + 1, rows.length - 1)); }
@@ -83,12 +85,13 @@ export function ProjectSwitcher({ projects, runs = [], lifecycles, current, onSe
           return [groupLi,
             <li key={`${r.group}-${r.id}`} id={`sw-${r.id}`} role="option" aria-selected={i === active}
             aria-current={r.id === current?.id ? "true" : undefined} onMouseEnter={() => setActive(i)} onClick={() => choose(r)}>
-            <span className="sw-title">{r.project.title}</span>
+            <span className="sw-title">{r.project.title}{archived.has(r.id) && <small className="sw-archived"> · 已归档</small>}</span>
             <span className="sw-meta">v{r.project.revision} · <span className={`sw-state s-${state}`}>{STATE_LABEL[state] ?? state}</span> · {day(r.project.createdAt)} · <code>{r.id.slice(0, 6)}</code></span>
           </li>];
         })}
         {rows.length === 0 && <li className="none" role="presentation">没有匹配的任务</li>}
       </ul>
+      {archived.size > 0 && <label className="sw-toggle"><input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} />显示已归档（{archived.size}）</label>}
     </div>}
   </div>;
 }

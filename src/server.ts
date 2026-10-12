@@ -48,6 +48,7 @@ import { DEFAULT_OPTIMIZE_BUDGET, MAX_OPTIMIZE_EVALUATIONS, botorchVersion, opti
 import { KIND_STORE, admission, createRelease, decideRelease, supersedeForRevision, type Release } from "./release.js";
 import { acquireRuntime } from "./runtime-lock.js";
 import { authentication } from "./auth.js";
+import { archiveTask } from "./project-archive.js";
 import { cognitoDirectory, sessionRole, tenantSessionAllows, type Directory, type SessionRole } from "./members.js";
 import { artifactRoutes } from "./artifacts/routes.js";
 import { ontologyRoutes } from "./ontology/routes.js";
@@ -332,6 +333,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   }; });
   app.get("/api/tools", async () => toolCatalog);
   action("createTask", async ({ request }) => workbench.createProject(request.body));
+  action("archiveTask", async ({ request }) => archiveTask(store, paramId(request.params), request.body, actor(request.headers)));
   action("reviseRequirements", async ({ request }) => {
     const input = ReviseProject.parse(request.body);
     const { expectedRevision, ...project } = input;

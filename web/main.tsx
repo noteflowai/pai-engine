@@ -24,7 +24,8 @@ import "./style.css";
 
 function parseRoute(): Route {
   const [path, query = ""] = location.hash.replace(/^#\/?/, "").split("?");
-  const view = (VIEWS.some(v => v.id === path) ? path : "overview") as ViewId;
+  // Landing page: the decision platform (decision algorithms and twins) comes first.
+  const view = (VIEWS.some(v => v.id === path) ? path : "artifacts") as ViewId;
   return { view, params: new URLSearchParams(query) };
 }
 const DOT: Record<string, string> = { done: "完成", attention: "需处理", active: "运行中", pending: "未开始" };
@@ -37,7 +38,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [toasts, setToasts] = useState<{ id: number; message: string; tone: "ok" | "bad" }[]>([]);
   // Docked on wide screens; on phones it is a full-screen sheet that always starts closed.
-  const [assistant, setAssistant] = useState(() => { if (innerWidth < 1024) return false; const saved = localStorage.getItem("pai-assistant"); return saved ? saved === "open" : innerWidth >= 1280; });
+  const [assistant, setAssistant] = useState(() => { if (innerWidth < 1024) return false; const saved = localStorage.getItem("pai-assistant"); return saved ? saved === "open" : innerWidth >= 1600; });
   const { session, track } = useLiveSession();
   const seq = useRef(0), lastView = useRef(route.view);
 
@@ -151,7 +152,7 @@ function App() {
         <div className="brand-wrap"><a className="brand" href="#/overview" aria-label="PAI Design Workbench 总览"><span className="brand-mark">P</span><span>PAI<small>DESIGN WORKBENCH</small></span></a>
           {ctx.data.build && <BuildBadge build={ctx.data.build} />}</div>
         <div className="project-switch">
-          {(ctx.data.projects.length > 0 || runs.length > 0) && <ProjectSwitcher projects={ctx.data.projects} runs={runs} lifecycles={ctx.data.lifecycles} current={project}
+          {(ctx.data.projects.length > 0 || runs.length > 0) && <ProjectSwitcher projects={ctx.data.projects} archived={new Set((ctx.data.projectArchives ?? []).filter(a => a.archived).map(a => a.projectId))} runs={runs} lifecycles={ctx.data.lifecycles} current={project}
             onSelect={id => { selectProject(id); navigate("overview"); }} onSelectRun={id => navigate("artifacts", { run: id })} />}
           <button type="button" className="secondary compact" onClick={() => navigate("requirements", { new: "1" })}>新建</button>
           {lifecycle && <button type="button" className={`maturity-chip m-${lifecycle.maturity.state}`} onClick={() => navigate("deliver")}

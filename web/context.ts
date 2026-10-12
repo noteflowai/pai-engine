@@ -23,6 +23,7 @@ export type State = {
   projects: Project[]; reviews: Review[]; feedback: Feedback[]; campaigns: Campaign[]; proposals: Proposal[]; scenes: SceneReview[]; cads?: CadReview[]; aeros?: AeroReview[]; cadSweeps?: CadSweep[]; cadOptimizations?: CadOptimization[];
   factoryCriteria?: FactoryCriteria[]; factoryReviews?: FactoryReview[]; inspections?: Inspection[]; assistantPlans?: AssistantPlan[]; lifecycles?: Record<string, Lifecycle>; aiTrackRecords?: Record<string, TrackRecord>; autonomyGrants?: AutonomyGrant[]; autopilots?: Autopilot[];
   releases?: Release[]; projectVersions?: ProjectVersion[];
+  projectArchives?: { projectId: string; archived: boolean; reason: string; at: string }[];
   build?: { version: string; commit: string | null; source: "packaged" | "checkout" | "unknown"; dirty?: boolean; packagedAt?: string; releaseDigest?: string };
   metrics: { independentParticipants: number; independentEvents: number; independentRepeatUsers: number; maintainerEvents: number; fixtureEvents: number };
   capabilities: { aero?: false | { engine: string; reference: AeroParameters; defaultRequirements: AeroRequirementsValue }; modelProposal: boolean; assistant?: { modelInvocation: boolean; engines: string[]; images?: boolean }; blender: boolean; cad?: false | { engine: string; defaultRequirements: CadRequirements; families?: Record<string, CadRequirements>; cam?: false | { engine: string };
