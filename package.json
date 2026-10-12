@@ -1,6 +1,6 @@
 {
   "name": "pai-design-workbench",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "description": "A TypeScript workbench connecting PAI design requirements, native validation, replay and feedback.",
   "type": "module",
