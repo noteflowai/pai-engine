@@ -8,6 +8,7 @@ inputs:
   sandbox: { description: "Bubblewrap OS sandbox for generated CAD code", default: "false" }
   cadquery: { description: "Hash-locked CadQuery 2.8 / OCCT 7.9", default: "false" }
   physics: { description: "Gmsh, CalculiX, Optuna, scikit-learn, MuJoCo and Newton", default: "false" }
+  botorch: { description: "PyTorch CPU and BoTorch in the physics venv (qLogNEHVI, the structural surrogate)", default: "false" }
   logistics: { description: "Hash-locked OR-Tools", default: "false" }
   cam: { description: "FreeCAD 1.1 CAM (AppImage digest-pinned)", default: "false" }
   robots: { description: "Strands Robots (hash-locked) + MuJoCo Menagerie at the pinned commit, simulation only", default: "false" }
@@ -57,7 +58,7 @@ runs:
       shell: bash
       run: |
         sudo apt-get install -y -q libglu1-mesa libgl1 libopengl0 libxcursor1 libxft2 libxinerama1 libfontconfig1 libgomp1 libopenmpi3t64
-        "${{ steps.py312.outputs.python-path }}" tools/setup_physics.py --with-newton
+        "${{ steps.py312.outputs.python-path }}" tools/setup_physics.py --with-newton ${{ inputs.botorch == 'true' && '--with-botorch' || '' }}
     - name: OR-Tools
       if: inputs.logistics == 'true'
       shell: bash
