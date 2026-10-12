@@ -51,3 +51,14 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.1" }, "t"), /weights differ from the training report/);
   } finally { store.close(); await rm(state, { recursive: true, force: true }); }
 });
+
+test("in the CAD lane the surrogate is compared with the measurement and never decides", async () => {
+  const { compare } = await import("../src/surrogate-lane.js");
+  const c = compare({ artifact: "structural-surrogate-bracket@1.0.0", digest: "d", state: "predicted", authority: "none",
+    prediction: { deflectionMm: 0.05, stressMPa: 50, mass: 48, interval90: { deflectionMm: [0.04, 0.06], stressMPa: [45, 55], mass: [47, 49] }, inDomain: true, ms: 9 } },
+    { deflectionMm: 0.0478, stressMPa: 60, mass: 48.368 });
+  assert.deepEqual(c.inInterval, { deflectionMm: true, stressMPa: false, mass: true });
+  assert.equal(c.relError!.deflectionMm, 0.046); assert.equal(c.authority, "none");
+  const na = compare({ artifact: "a", digest: "d", state: "not-applicable", reason: "load case", authority: "none" }, { deflectionMm: 1, stressMPa: 1, mass: 1 });
+  assert.equal(na.relError, undefined);
+});

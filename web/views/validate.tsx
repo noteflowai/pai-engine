@@ -165,6 +165,7 @@ function CadDetail({ cad }: { cad?: CadReview }) {
       <span className="fea-scale" aria-hidden="true"><i /></span><small>0 → {fea.colorScaleMaxMPa} MPa</small>
       <small>{fea.solver} · {fea.mesher} · {fea.element} · 细网格 {fea.meshes.fine?.elements} 单元 · 两级网格挠度差 {(fea.convergence.axisDisplacement * 100).toFixed(1)}%、峰值应力差 {(fea.convergence.peakVonMises * 100).toFixed(1)}%</small>
     </div>}
+    {cad?.state === "completed" && cad.surrogate?.[which] && <SurrogateCard c={cad.surrogate[which]!} />}
     <div className="segmented" role="group" aria-label="零件">{(["baseline", "candidate"] as const).map(w =>
       <button key={w} type="button" aria-pressed={which === w} className={which === w ? "active" : ""} onClick={() => setWhich(w)}>{w === "baseline" ? "基准零件" : "候选零件"}</button>)}</div>
     {cad?.sandbox && <details className="code-source" open={cad.state === "failed"}>
@@ -292,4 +293,21 @@ function FirstArticle({ cad }: { cad: CadReview }) {
         }, "首件检验已记录：全部特性在公差内。")}>记录首件检验</button></div>
     </>}
   </Card>;
+}
+
+/** The surrogate's prediction made before CalculiX ran, next to the measurement: record only, never a verdict. */
+function SurrogateCard({ c }: { c: NonNullable<NonNullable<CadReview["surrogate"]>["candidate"]> }) {
+  const rows = [["最大挠度", "deflectionMm", "mm", 4], ["最大应力", "stressMPa", "MPa", 1], ["质量", "mass", "g", 1]] as const;
+  return <section className="surrogate-card" aria-label="代理模型预测与实测">
+    <h3>AI 代理模型 · 求解前预测 vs CalculiX 实测</h3>
+    {c.state !== "predicted" || !c.prediction || !c.measured ? <p className="muted">{c.artifact}：{c.state === "not-applicable" ? "不适用" : "预测失败"}（{c.reason}）。结论只来自 CalculiX。</p> : <>
+      <div className="table-wrap"><table className="data-table"><caption className="visually-hidden">代理模型预测与实测</caption>
+        <thead><tr><th scope="col">量</th><th scope="col">预测（90 % 区间）</th><th scope="col">CalculiX 实测</th><th scope="col">相对误差</th></tr></thead>
+        <tbody>{rows.map(([label, k, unit, d]) => <tr key={k}><th scope="row">{label}</th>
+          <td>{c.prediction![k].toFixed(d)} {unit} <small className="muted">（{c.prediction!.interval90[k][0].toFixed(d)}–{c.prediction!.interval90[k][1].toFixed(d)}）</small></td>
+          <td>{c.measured![k].toFixed(d)} {unit}</td>
+          <td>{((c.relError?.[k] ?? 0) * 100).toFixed(1)} %{c.inInterval?.[k] === false && <small className="bad-text"> 区间外</small>}</td></tr>)}</tbody></table></div>
+      <small className="muted">{c.artifact} · 推理 {c.prediction.ms} ms · 只用几何（无配方参数） · 权限：无，仅供排序与筛选；验收只看实测。</small>
+    </>}
+  </section>;
 }
