@@ -1,3 +1,4 @@
+import { compare, predictBeforeSolve, type SurrogateComparison } from "./surrogate-lane.js";
 import { enginePath, runEngine, toolDigest } from "./kernel/engine-runtime.js";
 import { randomUUID } from "node:crypto";
 import { readFile, readdir, mkdir, rm, writeFile } from "node:fs/promises";
@@ -145,6 +146,8 @@ export interface CadReview {
   baseline?: CadChecks; candidate?: CadChecks; diff?: DiffResult;
   /** Native FEA summaries (coarse/fine meshes, convergence) per part, when structural requirements are frozen. */
   fea?: Partial<Record<"baseline" | "candidate", FeaSummary>>;
+  /** Structural surrogate prediction made before the solve and its error against the solve (record only; authority none). */
+  surrogate?: Partial<Record<"baseline" | "candidate", SurrogateComparison>>;
   receipts: Receipt[]; sourceDigests: Record<string, string>; files: Record<string, string>;
   stages?: Partial<Record<"baseline" | "candidate", SceneStage[]>>;
   /** Generated candidate: code digest, isolation layers and the sandbox outcome. */
@@ -403,10 +406,16 @@ export async function reviewCad(store: Store, config: Config, project: Project, 
         if (checks.variant !== variant) throw new DomainError("CAD_CONTEXT", "Native CAD variant mismatch");
         if (canonical(checks.checks.map(c => c.id)) !== canonical(FAMILY_CHECKS[family])) throw new DomainError("CAD_CONTEXT", "Native CAD produced unexpected checks");
         if (structural) {
+          // The released structural surrogate predicts first (record only, never a verdict); CalculiX then measures.
+          const predicted = await predictBeforeSolve(store, config, family, structural, FAMILY_STRUCTURAL[family], join(target, "part.step"), join(directory, `${name}-surrogate`));
           const fea = await runFea(config, publish, part, request.requestId, name, target, checks, structural, family);
           checks.checks.push(...fea.checks);
           const { checks: _measured, ...summary } = fea;
           record.fea = { ...record.fea, [name]: summary };
+          if (predicted) {
+            const obs = (id: string) => Number(checks.checks.find(c => c.id === id)?.observed);
+            record.surrogate = { ...record.surrogate, [name]: compare(predicted, { deflectionMm: obs("max-deflection"), stressMPa: obs("max-stress"), mass: obs("mass") }) };
+          }
         }
         record[name] = checks;
         const dfm = request.requirements.dfm;

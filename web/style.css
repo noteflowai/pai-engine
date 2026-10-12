@@ -828,3 +828,5 @@ body.viewport-focus { overflow: hidden; }
 .algos li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .sw-toggle { display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
 .sw-archived { color: var(--ink-3); font-weight: 500; }
+.surrogate-card { border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px 12px; margin: 10px 0; display: grid; gap: 6px; }
+.surrogate-card h3 { font-size: 13px; margin: 0; }
