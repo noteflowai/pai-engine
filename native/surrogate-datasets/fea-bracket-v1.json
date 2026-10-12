@@ -1,0 +1,29 @@
+{
+ "schema": "pai-surrogate-dataset-spec-1",
+ "id": "fea-bracket-v1",
+ "family": "nema17-bracket",
+ "purpose": "Training and held-out benchmark data for a geometry-to-structure surrogate (ranks only; the native solver decides).",
+ "design": {
+  "method": "sobol-scrambled+reference",
+  "seed": 20261012,
+  "n": 256
+ },
+ "requirements": {
+  "maxMassG": 80,
+  "minWallMm": 3,
+  "edgeDistanceFactor": 1.5,
+  "requireNoInterference": true,
+  "maxEnvelopeMm": [
+   80,
+   40,
+   60
+  ]
+ },
+ "structural": {
+  "forceN": 60,
+  "leverMm": 50,
+  "safetyFactor": 2,
+  "maxDeflectionMm": 0.06
+ },
+ "synthetic": true
+}
