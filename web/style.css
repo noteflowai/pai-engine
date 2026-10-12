@@ -792,3 +792,5 @@ button.switcher-trigger:hover:not(:disabled) { background: var(--sunken); border
 .crosscheck li.ok { color: var(--ok); } .crosscheck li.bad { color: var(--bad); font-weight: 600; }
 .offers { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .offers li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.run-detail.focused { outline: 2px solid var(--brand); outline-offset: 2px; }

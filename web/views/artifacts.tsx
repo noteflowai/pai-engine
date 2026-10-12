@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { api } from "../api";
 import { useApp } from "../context";
 import { Card, Check, Chip, Empty, ViewHeader, time, type Tone } from "../ui";
@@ -29,6 +29,7 @@ export function Artifacts() {
   const [artifacts, setArtifacts] = useState<Summary[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const focus = c.route.params.get("run") ?? undefined;
   const [version, setVersion] = useState("1.0.0");
   const [adapters, setAdapters] = useState<string[]>(["logistics-pdptw"]), [adapter, setAdapter] = useState("logistics-pdptw");
   const [definition, setDefinition] = useState("");
@@ -111,7 +112,7 @@ export function Artifacts() {
           await api("/v1/workflow-runs", { requestId: crypto.randomUUID(), workflow: selected!.id, inputs: { problem } });
         }, "流程已运行，结果见下方。")}>用合成实例运行</button></div>
       </>}
-      {runs.map(r => <RunCard key={r.id} run={r} onChange={load} reason={reason} />)}
+      {runs.map(r => <RunCard key={r.id} run={r} onChange={load} reason={reason} focused={r.id === focus} />)}
     </Card>
     <Tenants workflows={workflows} act={act} reason={reason} />
   </>;
@@ -168,7 +169,10 @@ function YardSummary({ plan }: { plan: YardPlan }) {
     {rows.length > 12 && <small className="muted">另有 {rows.length - 12} 辆，见运行数据。</small>}
   </div>;
 }
-function RunCard({ run, onChange, reason }: { run: WorkflowRun; onChange: () => Promise<unknown>; reason: (l: string) => string | undefined }) {
+function RunCard({ run, onChange, reason, focused }: { run: WorkflowRun; onChange: () => Promise<unknown>; reason: (l: string) => string | undefined; focused?: boolean }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // Opened from the task switcher (#/artifacts?run=<id>): expand and bring it into view.
+  useEffect(() => { if (focused) ref.current?.scrollIntoView({ block: "start", behavior: "smooth" }); }, [focused]);
   const [yard, setYard] = useState<YardPlan>();
   const c = useApp();
   const [plan, setPlan] = useState<{ status: string; totalDistanceKm: number; totalCost: number; vehiclesUsed: number; unassigned: string[]; routes: { vehicle: string; stops: unknown[]; distanceKm: number }[] }>();
@@ -180,7 +184,7 @@ function RunCard({ run, onChange, reason }: { run: WorkflowRun; onChange: () => 
     if (run.nodes.verify?.outputs?.verification) void api<{ checks: NonNullable<typeof checks> }>(`/v1/workflow-runs/${run.id}/data?node=verify&name=verification`).then(v => setChecks(v.checks)).catch(() => undefined);
   }, [run.id, run.revision]);
   const waiting = Object.entries(run.nodes).find(([, n]) => n.state === "waiting-approval")?.[0];
-  return <details className="receipts run-detail" open={run.state === "waiting-approval"}>
+  return <details ref={ref} id={`run-${run.id}`} className={`receipts run-detail${focused ? " focused" : ""}`} open={focused || run.state === "waiting-approval"}>
     <summary><Chip tone={RUN[run.state][1]}>{RUN[run.state][0]}</Chip> {run.workflowId} · {time(run.createdAt)}{plan && ` · ${plan.status}${typeof plan.totalDistanceKm === "number" ? ` · ${plan.totalDistanceKm} km` : ""}`}</summary>
     {run.error && <p className="bad-text">原因：{run.error}</p>}
     <div className="table-wrap"><table className="data-table nodes"><caption className="visually-hidden">节点</caption>
