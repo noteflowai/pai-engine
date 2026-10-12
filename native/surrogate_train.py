@@ -23,7 +23,7 @@ import numpy as np
 import torch
 from torch import nn
 
-THREADS, SEED = 4, 20261012
+THREADS, SEED, ALPHA = 4, 20261012, 0.1
 TARGETS = ("deflectionMm", "stressMPa", "mass")
 
 
@@ -112,16 +112,25 @@ def train(a):
     # Model selection: 5-fold CV on the training rows (one member, a third of the epochs); held-out rows are not touched.
     train_rows = np.flatnonzero(tr)
     folds = np.array([int(hashlib.sha256(f"cv:{SEED}:{i}".encode()).hexdigest(), 16) % 5 for i in index[train_rows]])
-    cv = {}
+    cv, oof = {}, {}
     for cfg in CONFIGS:
-        err = []
+        err, oof[cfg] = [], np.full((len(train_rows), len(TARGETS)), np.nan)
         for k in range(5):
             if not (folds == k).any() or (folds != k).sum() < 2:
                 continue  # tiny datasets (tests): an empty fold says nothing
             nets = fit(cfg, train_rows[folds != k], 1, a.cv_epochs)
-            err.append(((run(nets, train_rows[folds == k])[0] - zt[train_rows[folds == k]].numpy()) ** 2).mean())
+            got = run(nets, train_rows[folds == k])[0]
+            oof[cfg][folds == k] = got
+            err.append(((got - zt[train_rows[folds == k]].numpy()) ** 2).mean())
         cv[cfg] = float(np.sqrt(np.mean(err)))
     chosen = min(cv, key=cv.get)
+    # Split-conformal intervals from the chosen configuration's out-of-fold residuals (training rows only): the
+    # finite-sample (1 - alpha) quantile of |error| in the model's own space (log for deflection and stress, grams for
+    # mass). Out-of-fold models are weaker than the final ensemble, so the intervals err on the wide side.
+    resid = np.abs((oof[chosen] * sd + mu) - z[train_rows])
+    resid = resid[~np.isnan(resid).any(1)]
+    level = min(1.0, np.ceil((len(resid) + 1) * (1 - ALPHA)) / max(len(resid), 1))
+    conformal = np.quantile(resid, level, axis=0, method="higher") if len(resid) else np.full(len(TARGETS), np.inf)
     t0 = time.time()
     members = fit(chosen, train_rows, a.members, a.epochs)
     seconds = time.time() - t0
@@ -135,6 +144,7 @@ def train(a):
     # Calibration: share of held-out points whose log-space truth lies within 2 ensemble sigmas.
     zt_true = encode(true)
     cover = {k: float(np.mean(np.abs(encode(pred)[:, j] - zt_true[:, j]) <= 2 * spread[:, j] + 1e-12)) for j, k in enumerate(TARGETS)}
+    cover90 = {k: float(np.mean(np.abs(encode(pred)[:, j] - zt_true[:, j]) <= conformal[j])) for j, k in enumerate(TARGETS)}
     # Baseline: GP on the recipe parameters, same split.
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
@@ -151,7 +161,7 @@ def train(a):
         s = time.perf_counter(); ensemble(te_rows[:1]); lat.append((time.perf_counter() - s) * 1000)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     buf = io.BytesIO()
-    torch.save({"schema": "pai-structural-surrogate-1", "config": chosen, "members": [n.state_dict() for n in members], "mu": mu.tolist(), "sd": sd.tolist(),
+    torch.save({"schema": "pai-structural-surrogate-1", "config": chosen, "members": [n.state_dict() for n in members], "mu": mu.tolist(), "sd": sd.tolist(), "conformal90": conformal.tolist(),
                 "gmu": gmu.tolist(), "gsd": gsd.tolist(),
                 "targets": TARGETS, "points": int(x.shape[1]), "rowsSha256": str(f["rowsSha256"][0])}, buf)
     (out / "weights.pt").write_bytes(buf.getvalue())
@@ -159,7 +169,8 @@ def train(a):
               "weightsSha256": hashlib.sha256(buf.getvalue()).hexdigest(), "train": int(tr.sum()), "heldOut": int(te.sum()),
               "selection": {"method": "5-fold CV on training rows, log-space RMSE (standardised)", "cvEpochs": a.cv_epochs, "cv": cv, "chosen": chosen},
               "model": {"name": "PointNet deep ensemble", "config": chosen, "members": a.members, "epochs": a.epochs, "trainPoints": a.train_points, "seed": SEED, "threads": THREADS, "torch": torch.__version__},
-              "surrogate": metrics(pred, true), "coverage2Sigma": cover, "gpBaseline": metrics(gp_pred, true),
+              "surrogate": metrics(pred, true), "coverage2Sigma": cover, "conformal90": {"halfWidth": dict(zip(TARGETS, map(float, conformal))), "space": "log (deflection, stress), grams (mass)",
+                "from": f"{len(resid)} out-of-fold residuals of training rows", "heldOutCoverage": cover90}, "gpBaseline": metrics(gp_pred, true),
               "inferenceMs": float(np.median(lat)), "trainSeconds": round(seconds, 1),
               "heldOutPoints": [{"index": int(i), "true": t.tolist(), "pred": p.tolist(), "sigmaLog": s.tolist()} for i, t, p, s in zip(index[te], true, pred, spread)]}
     (out / "benchmark.json").write_text(json.dumps(result, indent=1, allow_nan=False) + "\n")
@@ -181,7 +192,9 @@ def predict(a):
     with torch.no_grad():
         zs = np.stack([n(x, g).numpy() for n in members]) * sd + mu
     mean, spread = decode(zs.mean(0))[0], zs.std(0)[0]
-    print(json.dumps({"schema": "pai-surrogate-prediction-1", **{k: float(v) for k, v in zip(TARGETS, mean)}, "sigmaLog": dict(zip(TARGETS, map(float, spread))),
+    q, zm = np.array(w.get("conformal90", [np.inf] * len(TARGETS))), zs.mean(0)[0]
+    interval = {k: [float(v) for v in decode(np.array([zm - q, zm + q]))[:, j]] for j, k in enumerate(TARGETS)}
+    print(json.dumps({"schema": "pai-surrogate-prediction-1", **{k: float(v) for k, v in zip(TARGETS, mean)}, "sigmaLog": dict(zip(TARGETS, map(float, spread))), "interval90": interval,
                       "ms": round((time.perf_counter() - t0) * 1000, 2), "authority": "suggestion"}))
 
 
