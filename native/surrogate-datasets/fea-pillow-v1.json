@@ -1,0 +1,31 @@
+{
+ "schema": "pai-surrogate-dataset-spec-1",
+ "id": "fea-pillow-v1",
+ "family": "pillow-block",
+ "purpose": "Training and held-out benchmark data for a geometry-to-structure surrogate (ranks only; the native solver decides).",
+ "design": {
+  "method": "sobol-scrambled+reference",
+  "seed": 20261012,
+  "n": 256
+ },
+ "requirements": {
+  "maxMassG": 250,
+  "minWallMm": 5,
+  "edgeDistanceFactor": 1.5,
+  "requireNoInterference": true,
+  "maxEnvelopeMm": [
+   120,
+   40,
+   60
+  ]
+ },
+ "structural": {
+  "forceN": 1000,
+  "leverMm": 0,
+  "safetyFactor": 2,
+  "maxDeflectionMm": 0.01,
+  "direction": "away-from-base",
+  "maxBoreDistortionMm": 0.006
+ },
+ "synthetic": true
+}
