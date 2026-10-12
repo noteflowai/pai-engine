@@ -37,7 +37,7 @@ test("measure (local job) → featurize → train → predict: reproducible end 
     const row0 = JSON.parse((await readFile(join(dir, "d", "rows.jsonl"), "utf8")).split("\n")[0]);
     assert.deepEqual([row0.mass, row0.deflectionMm, row0.stressMPa], [48.368, 0.0478, 49], "reference bracket measured as in the FEA lane");
     for (const out of ["f1.npz", "f2.npz"]) run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--dataset", join(dir, "d"), "--output", join(dir, out)]);
-    const train = (o: string) => JSON.parse(run(PY!, ["native/surrogate_train.py", "train", "--features", join(dir, "f1.npz"), "--output", join(dir, o), "--members", "1", "--epochs", "3"]).trim().split("\n").at(-1)!);
+    const train = (o: string) => JSON.parse(run(PY!, ["native/surrogate_train.py", "train", "--features", join(dir, "f1.npz"), "--output", join(dir, o), "--members", "1", "--epochs", "3", "--cv-epochs", "2"]).trim().split("\n").at(-1)!);
     const a = train("m1"), b = train("m2");
     assert.equal(a.weightsSha256, b.weightsSha256, "training is bit-reproducible");
     run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--step", join(dir, "d", "points", "0000", "part.step"), "--output", join(dir, "one.npz")]);
