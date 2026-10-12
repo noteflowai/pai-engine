@@ -3,11 +3,12 @@
 # native scripts, the instance role's existing Batch/S3 jobs/* permissions. Runs as a hardened transient systemd unit so
 # it outlives the SSM command; resumable (a rerun skips verified points, never resubmits a failed one by itself).
 #
-#   PAI_SEND_DATASET=fea-bracket-v1 [PAI_SEND_LIMIT=4] [PAI_SEND_ACTION=start|status] python3 tools/aws_operator.py send --script tools/hosted_surrogate_dataset.sh
+#   PAI_SEND_DATASET=fea-bracket-v1 [PAI_SEND_LIMIT=4] [PAI_SEND_REMEASURE=failed] [PAI_SEND_ACTION=start|status] python3 tools/aws_operator.py send --script tools/hosted_surrogate_dataset.sh
 set -e
 DATASET="${DATASET:?}"; ACTION="${ACTION:-start}"
 case "$DATASET" in *[!a-z0-9-]*) echo "bad dataset id" >&2; exit 2;; esac
 case "${LIMIT:-}" in *[!0-9]*) echo "bad limit" >&2; exit 2;; esac
+case "${REMEASURE:-}" in ""|failed) ;; *) echo "REMEASURE may only be 'failed'" >&2; exit 2;; esac
 REL=$(readlink -f /opt/pai/current); OUT=/var/lib/pai/data/state/surrogate/datasets/$DATASET; UNIT=pai-surrogate-$DATASET
 PY=/var/lib/pai/data/state/tools/physics-1/bin/python
 if [ "$ACTION" = status ]; then
@@ -23,5 +24,5 @@ install -d -o pai -g pai -m 0700 "$OUT"
 systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemd-run --unit "$UNIT" --description "PAI surrogate dataset $DATASET" -p User=pai -p Group=pai -p NoNewPrivileges=true -p ProtectSystem=strict \
   -p ProtectHome=true -p PrivateTmp=true -p ReadWritePaths=/var/lib/pai/data -p EnvironmentFile=/etc/pai/runtime.env -p WorkingDirectory="$REL" \
-  "$PY" -I "$REL/native/surrogate_dataset.py" --spec "$REL/native/surrogate-datasets/$DATASET.json" --output "$OUT" --concurrency 12 ${LIMIT:+--limit "$LIMIT"}
+  "$PY" -I "$REL/native/surrogate_dataset.py" --spec "$REL/native/surrogate-datasets/$DATASET.json" --output "$OUT" --concurrency 12 ${LIMIT:+--limit "$LIMIT"} ${REMEASURE:+--remeasure-failed}
 echo "started $UNIT (output $OUT)"
