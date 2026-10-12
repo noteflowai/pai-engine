@@ -124,6 +124,7 @@ def main():
     ap.add_argument("--spec", required=True); ap.add_argument("--output", required=True)
     ap.add_argument("--concurrency", type=int, default=12); ap.add_argument("--plan-only", action="store_true")
     ap.add_argument("--backend", choices=["batch", "local"], default="batch", help="local: solver_job.py on this machine (tests)")
+    ap.add_argument("--remeasure-failed", action="store_true", help="measure failed points again (an explicit operator decision after a fix; recorded in the manifest)")
     ap.add_argument("--limit", type=int, help="measure only the first N planned points (smoke run; the manifest records it)")
     a = ap.parse_args()
     spec_bytes = Path(a.spec).read_bytes(); spec = json.loads(spec_bytes)
@@ -139,10 +140,16 @@ def main():
     (out / "spec.json").write_bytes(spec_bytes)
     started = time.time()
 
+    remeasured = []
+
     def one(item):
         index, params = item
         folder = out / "points" / f"{index:04d}"; folder.mkdir(exist_ok=True)
-        return verified(folder) or measure(spec, batch, folder, index, params)
+        row = verified(folder)
+        if row and row["status"] == "failed" and a.remeasure_failed:
+            (folder / "row.json").rename(folder / f"row.failed-{int(time.time())}.json")  # the earlier failure is kept
+            remeasured.append(index); row = None
+        return row or measure(spec, batch, folder, index, params)
     with ThreadPoolExecutor(max_workers=max(1, min(a.concurrency, 16))) as pool:
         rows = list(pool.map(one, list(enumerate(points))[: a.limit or len(points)]))
     lines = "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows)
@@ -153,7 +160,7 @@ def main():
                 "failed": len(rows) - len(measured), "rowsSha256": sha(lines.encode()),
                 "images": sorted({r["image"] for r in measured if r.get("image")}), "versions": PINS,
                 "scripts": {n: sha((HERE / n).read_bytes()) for n in ("surrogate_dataset.py", "design_space.py", "solver_job.py")},
-                "load": spec["structural"], "seconds": round(time.time() - started), "synthetic": True, "physicalValidation": False}
+                "remeasured": sorted(remeasured), "load": spec["structural"], "seconds": round(time.time() - started), "synthetic": True, "physicalValidation": False}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     print(json.dumps({k: manifest[k] for k in ("id", "planned", "measured", "failed", "rowsSha256")}))
 
