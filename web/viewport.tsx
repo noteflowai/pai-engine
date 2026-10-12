@@ -51,6 +51,19 @@ export default function Viewport({ model }: { model?: ViewportModel }) {
   const [showRay, setShowRay] = useState(true);
   const [loaded, setLoaded] = useState("");
   const [clips, setClips] = useState(0);
+  // Focus mode (as in Onshape/Fusion/Sketchfab): the viewport fills the window; Esc or the same button restores.
+  // The outliner is a panel that can be hidden; it starts hidden where the work area is narrow.
+  const [maximized, setMaximized] = useState(false);
+  const [panel, setPanel] = useState(() => typeof matchMedia === "function" ? matchMedia("(min-width: 1100px)").matches : true);
+  const rootRef = useRef<HTMLDivElement>(null), maxButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!maximized) return;
+    document.body.classList.add("viewport-focus");
+    rootRef.current?.querySelector<HTMLCanvasElement>("canvas")?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setMaximized(false); } };
+    addEventListener("keydown", esc);
+    return () => { removeEventListener("keydown", esc); document.body.classList.remove("viewport-focus"); maxButton.current?.focus(); };
+  }, [maximized]);
   const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
@@ -276,11 +289,13 @@ export default function Viewport({ model }: { model?: ViewportModel }) {
     if (e.key.toLowerCase() === "z" && e.altKey) { setXray(x => !x); e.preventDefault(); }
     else if (e.key.toLowerCase() === "z") setWire(w => !w);
     if (e.key.toLowerCase() === "f") setView("persp");
+    if (e.key.toLowerCase() === "m" && !e.ctrlKey && !e.metaKey && !e.altKey) { setMaximized(m => !m); e.preventDefault(); }
   };
   const footprint = objects.find(o => o.name === "Workcell footprint");
   const inspected = objects.find(o => o.name === selected);
   const ray = model?.ray;
-  return <div className="viewport" onKeyDown={onKey} data-webgl={webgl} data-objects={objects.length}
+  return <div ref={rootRef} className={`viewport${maximized ? " maximized" : ""}${panel ? "" : " no-side"}`} onKeyDown={onKey}
+    {...(maximized ? { role: "dialog", "aria-modal": true, "aria-label": "三维视口（最大化，Esc 还原）" } : {})} data-webgl={webgl} data-objects={objects.length}
     data-stage={activeIndex !== undefined ? stages[activeIndex].index : stages.length} data-ray={ray ? (ray.visible ? "target" : "blocked") : "none"} data-animations={clips} data-playing={playing}>
     <div className="viewport-canvas" ref={host}>
       {webgl === "unavailable" && <div className="viewport-fallback">此浏览器未启用 WebGL；原生渲染图与下载文件不受影响。</div>}
@@ -291,6 +306,10 @@ export default function Viewport({ model }: { model?: ViewportModel }) {
       </div>
       <div className="viewport-hud top-right" role="toolbar" aria-label="视图预设">
         {VIEWS.map(v => <button key={v.id} type="button" className={view === v.id ? "active" : ""} aria-pressed={view === v.id} title={`快捷键 ${v.key}`} onClick={() => setView(v.id)}>{v.label}</button>)}
+        <span className="hud-sep" aria-hidden="true" />
+        <button type="button" className={panel ? "active" : ""} aria-pressed={panel} title="大纲与检查器" onClick={() => setPanel(x => !x)}>大纲</button>
+        <button ref={maxButton} type="button" className="hud-max" aria-pressed={maximized} aria-label={maximized ? "还原视口" : "最大化视口"}
+          title={maximized ? "还原（Esc / M）" : "最大化（M）"} onClick={() => setMaximized(m => !m)}>{maximized ? "⤡ 还原" : "⤢ 最大化"}</button>
       </div>
       {ray && !model?.rays?.length && <div className={`viewport-hud bottom-left ray-badge ${ray.visible ? "ok" : "blocked"}`}>原生射线首个命中：{ray.firstHit === "Target" ? "目标" : ray.firstHit ?? "无"}{ray.visible ? " · 可见" : " · 被遮挡"}</div>}
       {model?.rays?.length ? <div className={`viewport-hud bottom-left ray-badge ${model.rays.every(x => x.visible) ? "ok" : "blocked"}`}>检测相机射线：{model.rays.filter(x => x.visible).length}/{model.rays.length} 个工位首个命中为工件</div> : null}
@@ -299,7 +318,7 @@ export default function Viewport({ model }: { model?: ViewportModel }) {
       {model?.render && !(clips > 0 && !model.running) && <div className="viewport-hud bottom-right render-progress" role="progressbar" aria-label="Cycles 渲染采样" aria-valuemin={0} aria-valuemax={model.render.samples} aria-valuenow={model.render.sample}>
         <span>Cycles {model.render.sample}/{model.render.samples}</span><i style={{ width: `${(model.render.sample / model.render.samples) * 100}%` }} /></div>}
     </div>
-    <div className="viewport-side">
+    <div className="viewport-side" hidden={!panel}>
       <div className="outliner"><strong>大纲 · Outliner</strong>
         {objects.length === 0 ? <p>尚无原生几何</p> : <ul>{objects.map(o => <li key={o.name} className={selected === o.name ? "selected" : ""}>
           <label className="check"><input type="checkbox" checked={o.visible} aria-label={`显示 ${o.name}`} onChange={e => setObjects(list => list.map(x => x.name === o.name ? { ...x, visible: e.target.checked } : x))} /></label>

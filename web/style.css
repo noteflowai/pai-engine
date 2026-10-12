@@ -372,7 +372,7 @@ video { display: block; width: 100%; aspect-ratio: 1; background: var(--vp); bor
 .viewport-empty strong { color: #e2f1ee; font-size: 14px; }
 .viewport-hud { position: absolute; z-index: 2; font-size: 11px; color: var(--vp-ink); background: #0b171bd9; border: 1px solid var(--vp-line); border-radius: 7px; padding: 6px 9px; backdrop-filter: blur(4px); }
 .viewport-hud small { display: block; color: #8fb0aa; font-size: 10px; }
-.top-left { top: 10px; left: 10px; max-width: calc(100% - 330px); display: flex; flex-wrap: wrap; align-items: center; }
+.top-left { top: 10px; left: 10px; max-width: calc(100% - 470px); display: flex; flex-wrap: wrap; align-items: center; }
 .top-left small { width: 100%; }
 .top-right { top: 10px; right: 10px; display: flex; gap: 2px; padding: 3px; flex-wrap: wrap; justify-content: flex-end; }
 .top-right button { min-height: 28px; padding: 3px 8px; font-size: 11px; background: transparent; border-color: transparent; color: #bfd8d3; font-weight: 600; }
@@ -794,3 +794,17 @@ button.switcher-trigger:hover:not(:disabled) { background: var(--sunken); border
 .offers li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 .run-detail.focused { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Viewport focus mode and collapsible outliner (web/viewport.tsx). */
+.viewport.no-side { grid-template-columns: minmax(0, 1fr); }
+.viewport-side[hidden] { display: none !important; }
+.viewport-hud .hud-sep { width: 1px; align-self: stretch; margin: 3px 4px; background: var(--vp-line); }
+.viewport.maximized { position: fixed; inset: 0; z-index: 1000; height: 100dvh; min-height: 0; border-radius: 0; border: 0; box-shadow: none; }
+.viewport.maximized .viewport-canvas { min-height: 0; }
+.viewport.maximized .viewport-side { max-height: none; }
+body.viewport-focus { overflow: hidden; }
+@media (max-width: 760px) {
+  .viewport.maximized { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto auto; }
+  .viewport.maximized .viewport-side { max-height: 38dvh; overflow: auto; }
+  .viewport .top-right .hud-max { font-weight: 700; }
+}
