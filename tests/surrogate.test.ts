@@ -43,6 +43,11 @@ test("measure (local job) → featurize → train → predict: reproducible end 
     run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--step", join(dir, "d", "points", "0000", "part.step"), "--output", join(dir, "one.npz")]);
     const p = JSON.parse(run(PY!, ["native/surrogate_train.py", "predict", "--weights", join(dir, "m1", "weights.pt"), "--features", join(dir, "one.npz")]));
     assert.equal(p.authority, "suggestion"); assert.ok(p.deflectionMm > 0 && p.stressMPa > 0 && p.mass > 0);
+    assert.equal(p.interval90.deflectionMm.length, 2);
+    // The shipped held-out re-check reproduces the training-time benchmark exactly.
+    const bench = JSON.parse(await readFile(join(dir, "m1", "benchmark.json"), "utf8"));
+    const ev = JSON.parse(run(PY!, ["native/surrogate_train.py", "evaluate", "--weights", join(dir, "m1", "weights.pt"), "--features", join(dir, "m1", "heldout.npz")]));
+    assert.deepEqual(ev.metrics, bench.surrogate); assert.equal(ev.weightsSha256, bench.weightsSha256);
     const f1 = await readFile(join(dir, "f1.npz")), f2 = await readFile(join(dir, "f2.npz"));
     assert.ok(f1.equals(f2), "features are deterministic");
   } finally { await rm(dir, { recursive: true, force: true }); }

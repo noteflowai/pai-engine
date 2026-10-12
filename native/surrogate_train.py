@@ -165,7 +165,15 @@ def train(a):
                 "gmu": gmu.tolist(), "gsd": gsd.tolist(),
                 "targets": TARGETS, "points": int(x.shape[1]), "rowsSha256": str(f["rowsSha256"][0])}, buf)
     (out / "weights.pt").write_bytes(buf.getvalue())
-    result = {"schema": "pai-surrogate-benchmark-1", "rowsSha256": str(f["rowsSha256"][0]), "featuresSha256": hashlib.sha256(Path(a.features).read_bytes()).hexdigest(),
+    # What an artifact ships for its own re-check: the held-out rows (features and truths) and the training domain of
+    # the geometry descriptors (a prediction outside it is flagged out-of-domain).
+    np.savez_compressed(out / "heldout.npz", x=x[te], g=f["g"][te], index=index[te], **{k: f[k][te] for k in TARGETS})
+    graw = f["g"][tr]
+    domain = {"schema": "pai-surrogate-domain-1", "descriptors": ["surfaceArea", "volume", "extentX", "extentY", "extentZ"],
+              "min": graw.min(0).tolist(), "max": graw.max(0).tolist(), "trainRows": int(tr.sum())}
+    (out / "domain.json").write_text(json.dumps(domain, indent=1) + "\n")
+    here = Path(__file__).resolve().parent
+    result = {"schema": "pai-surrogate-benchmark-1", "scripts": {n: hashlib.sha256((here / n).read_bytes()).hexdigest() for n in ("surrogate_train.py", "surrogate_featurize.py")}, "rowsSha256": str(f["rowsSha256"][0]), "featuresSha256": hashlib.sha256(Path(a.features).read_bytes()).hexdigest(),
               "weightsSha256": hashlib.sha256(buf.getvalue()).hexdigest(), "train": int(tr.sum()), "heldOut": int(te.sum()),
               "selection": {"method": "5-fold CV on training rows, log-space RMSE (standardised)", "cvEpochs": a.cv_epochs, "cv": cv, "chosen": chosen},
               "model": {"name": "PointNet deep ensemble", "config": chosen, "members": a.members, "epochs": a.epochs, "trainPoints": a.train_points, "seed": SEED, "threads": THREADS, "torch": torch.__version__},
@@ -179,29 +187,54 @@ def train(a):
                       "gp": {k: (v["spearman"], round(v["medianRelError"], 3)) for k, v in result["gpBaseline"].items()}}))
 
 
-def predict(a):
-    setup()
-    w = torch.load(a.weights, weights_only=True)
+def load(path):
+    w = torch.load(path, weights_only=True)
     members = []
     for sdict in w["members"]:
         n = PointNet(CONFIGS[w["config"]]["globals"]); n.load_state_dict(sdict); members.append(n.eval())
-    f = np.load(a.features)
-    x, g = torch.tensor(f["x"]), (torch.tensor(f["g"]) - torch.tensor(w["gmu"])) / torch.tensor(w["gsd"])
-    mu, sd = np.array(w["mu"]), np.array(w["sd"])
-    t0 = time.perf_counter()
+    return w, members
+
+
+def ensemble_z(w, members, x, g):
+    g = (torch.tensor(g) - torch.tensor(w["gmu"])) / torch.tensor(w["gsd"])
     with torch.no_grad():
-        zs = np.stack([n(x, g).numpy() for n in members]) * sd + mu
-    mean, spread = decode(zs.mean(0))[0], zs.std(0)[0]
-    q, zm = np.array(w.get("conformal90", [np.inf] * len(TARGETS))), zs.mean(0)[0]
+        return np.stack([n(torch.tensor(x), g).numpy() for n in members]) * np.array(w["sd"]) + np.array(w["mu"])
+
+
+def evaluate(a):
+    """Re-check of shipped weights on the shipped held-out rows (artifact acceptance): metrics and conformal coverage."""
+    setup()
+    w, members = load(a.weights)
+    h = np.load(a.features)
+    true = np.stack([h[k] for k in TARGETS], axis=1).astype(np.float64)
+    zs = ensemble_z(w, members, h["x"], h["g"])
+    pred, q = decode(zs.mean(0)), np.array(w["conformal90"])
+    cover = {k: float(np.mean(np.abs(zs.mean(0)[:, j] - encode(true)[:, j]) <= q[j])) for j, k in enumerate(TARGETS)}
+    print(json.dumps({"schema": "pai-surrogate-evaluation-1", "heldOut": int(len(true)), "metrics": metrics(pred, true), "conformal90Coverage": cover,
+                      "weightsSha256": hashlib.sha256(Path(a.weights).read_bytes()).hexdigest()}, allow_nan=False))
+
+
+def predict(a):
+    setup()
+    w, members = load(a.weights)
+    f = np.load(a.features)
+    t0 = time.perf_counter()
+    zs = ensemble_z(w, members, f["x"], f["g"])
+    ms = round((time.perf_counter() - t0) * 1000, 2)
+    zm, spread = zs.mean(0)[0], zs.std(0)[0]
+    mean, q = decode(zs.mean(0))[0], np.array(w.get("conformal90", [np.inf] * len(TARGETS)))
     interval = {k: [float(v) for v in decode(np.array([zm - q, zm + q]))[:, j]] for j, k in enumerate(TARGETS)}
-    print(json.dumps({"schema": "pai-surrogate-prediction-1", **{k: float(v) for k, v in zip(TARGETS, mean)}, "sigmaLog": dict(zip(TARGETS, map(float, spread))), "interval90": interval,
-                      "ms": round((time.perf_counter() - t0) * 1000, 2), "authority": "suggestion"}))
+    domain = json.loads(Path(a.domain).read_text()) if a.domain else None
+    outside = [] if not domain else [n for n, v, lo, hi in zip(domain["descriptors"], f["g"][0], domain["min"], domain["max"])
+                                       if not (lo - 0.05 * abs(lo) <= v <= hi + 0.05 * abs(hi))]
+    print(json.dumps({"schema": "pai-surrogate-prediction-1", **{k: float(v) for k, v in zip(TARGETS, mean)}, "sigmaLog": dict(zip(TARGETS, map(float, spread))),
+                      "interval90": interval, "inDomain": not outside, "outsideDomain": outside, "ms": ms, "authority": "suggestion"}, allow_nan=False))
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["train", "predict"])
-    ap.add_argument("--features", required=True); ap.add_argument("--output"); ap.add_argument("--weights")
+    ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["train", "predict", "evaluate"])
+    ap.add_argument("--features", required=True); ap.add_argument("--output"); ap.add_argument("--weights"); ap.add_argument("--domain")
     ap.add_argument("--members", type=int, default=5); ap.add_argument("--epochs", type=int, default=300); ap.add_argument("--train-points", type=int, default=512)
     ap.add_argument("--cv-epochs", type=int, default=100)
     a = ap.parse_args()
-    train(a) if a.mode == "train" else predict(a)
+    {"train": train, "predict": predict, "evaluate": evaluate}[a.mode](a)
