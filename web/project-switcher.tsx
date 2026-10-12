@@ -42,8 +42,9 @@ export function ProjectSwitcher({ projects, runs = [], lifecycles, current, onSe
     const byId = new Map(projects.map(p => [p.id, p]));
     const recent = recentProjects().map(id => byId.get(id)).filter((p): p is Project => Boolean(p));
     const seen = new Set(recent.map(p => p.id));
-    return [...recent.map(p => P(p, "最近打开")), ...newest.filter(p => !seen.has(p.id)).map(p => P(p, `全部设计任务（${projects.length}，最新在前）`)),
-      ...flows.slice(0, 20).map(r => R(r, `流程运行 · 场外物流与场地（${runs.length}，最新在前）`))];
+    // Runs before the long project list so they are reachable without scrolling; the newest 8 (all are searchable).
+    return [...recent.map(p => P(p, "最近打开")), ...flows.slice(0, 8).map(r => R(r, `流程运行 · 场外物流与场地（${runs.length}，最新在前）`)),
+      ...newest.filter(p => !seen.has(p.id)).map(p => P(p, `全部设计任务（${projects.length}，最新在前）`))];
   }, [projects, runs, query, open]); // re-read recent tasks each time it opens
   useEffect(() => {
     if (!open) return;
