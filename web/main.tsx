@@ -7,7 +7,7 @@ import { api } from "./api";
 import { AppContext, VIEWS, type Ctx, type Route, type State, type ViewId, type Attachment } from "./context";
 import { revealInScroller, Toasts } from "./ui";
 import { Assistant, useLiveSession } from "./studio";
-import { ProjectSwitcher, rememberProject } from "./project-switcher";
+import { ProjectSwitcher, rememberProject, type RunSummary } from "./project-switcher";
 import { Palette, type Command } from "./palette";
 import { Overview } from "./views/overview";
 import { Requirements } from "./views/requirements";
@@ -40,7 +40,13 @@ function App() {
   const { session, track } = useLiveSession();
   const seq = useRef(0), lastView = useRef(route.view);
 
-  const refresh = useCallback(async () => { const s = await api<State>("/state"); setData(s); return s; }, []);
+  // Workflow runs (artifact platform) are listed in the task switcher next to design projects; best effort, never blocks.
+  const [runs, setRuns] = useState<RunSummary[]>([]);
+  const refresh = useCallback(async () => {
+    const s = await api<State>("/state"); setData(s);
+    void api<RunSummary[]>("/v1/workflow-runs").then(r => setRuns(Array.isArray(r) ? r : [])).catch(() => undefined);
+    return s;
+  }, []);
   useEffect(() => { void refresh().catch(e => setLoadError(String(e instanceof Error ? e.message : e))); }, [refresh]);
   useEffect(() => {
     const onHash = () => setRoute(parseRoute());
@@ -144,8 +150,8 @@ function App() {
         <div className="brand-wrap"><a className="brand" href="#/overview" aria-label="PAI Design Workbench 总览"><span className="brand-mark">P</span><span>PAI<small>DESIGN WORKBENCH</small></span></a>
           {ctx.data.build && <BuildBadge build={ctx.data.build} />}</div>
         <div className="project-switch">
-          {ctx.data.projects.length > 0 && <ProjectSwitcher projects={ctx.data.projects} lifecycles={ctx.data.lifecycles} current={project}
-            onSelect={id => { selectProject(id); navigate("overview"); }} />}
+          {(ctx.data.projects.length > 0 || runs.length > 0) && <ProjectSwitcher projects={ctx.data.projects} runs={runs} lifecycles={ctx.data.lifecycles} current={project}
+            onSelect={id => { selectProject(id); navigate("overview"); }} onSelectRun={id => navigate("artifacts", { run: id })} />}
           <button type="button" className="secondary compact" onClick={() => navigate("requirements", { new: "1" })}>新建</button>
           {lifecycle && <button type="button" className={`maturity-chip m-${lifecycle.maturity.state}`} onClick={() => navigate("deliver")}
             aria-label={`成熟度：${lifecycle.maturity.state === "released" ? `${lifecycle.maturity.number} 已发布` : lifecycle.maturity.state === "in-review" ? `${lifecycle.maturity.number} 待审批` : "设计中"}`}>

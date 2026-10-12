@@ -1004,6 +1004,21 @@ test("artifact platform: build, benchmark, release, configure a workflow, run wi
   await expect(rejected.getByText(/原因：gate: verify is no-plan/)).toBeVisible();
   await expect(rejected.getByRole("row", { name: /solve/ }).getByText("infeasible")).toBeVisible();
   await noOverflow(page);
+  // The runs are history in the task switcher too: choosing one opens it on this page, expanded and outlined.
+  const firstRun = (await (await page.request.get("/api/v1/workflow-runs")).json() as { id: string; workflowId: string; createdAt: string }[])
+    .filter(r => r.workflowId === `offsite-delivery-plan@${n}`).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+  await page.goto("/#/overview"); await page.reload();
+  await page.getByRole("button", { name: /^选择已有任务：/ }).click();
+  await page.getByRole("combobox", { name: /搜索任务/ }).fill(firstRun.id.slice(0, 8));
+  const option = page.getByRole("listbox", { name: "任务" }).getByRole("option");
+  await expect(option).toHaveCount(1);
+  await expect(option).toContainText("场外物流规划");
+  await expect(page.locator(".sw-group").first()).toContainText("流程运行");
+  await option.click();
+  await expect(page).toHaveURL(new RegExp(`#/artifacts\\?run=${firstRun.id}`));
+  await expect(page.locator(`#run-${firstRun.id}`)).toHaveAttribute("open", "");
+  await expect(page.locator(`#run-${firstRun.id}.focused`)).toBeVisible();
+  await noOverflow(page);
   // Unauthorised write: a cross-origin request cannot create artifacts or runs.
   const cross = await page.request.post("/api/v1/artifacts", { data: { adapter: "logistics-pdptw", version: "9.9.9" }, headers: { origin: "https://attacker.example" } });
   expect(cross.status()).toBe(403);
