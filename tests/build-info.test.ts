@@ -46,3 +46,9 @@ test("the running version is served to signed-in clients; /healthz stays state-f
     assert.deepEqual((await app.inject({ url: "/healthz", headers: host })).json(), { status: "ok" });
   } finally { await app.close(); await rm(state, { recursive: true, force: true }); }
 });
+
+test("the MCP server reports the package version", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const pkg = JSON.parse(await readFile("package.json", "utf8")).version;
+  assert.match(await readFile("src/mcp.ts", "utf8"), new RegExp(`const VERSION = "${pkg.replace(/\./g, "\\.")}"`));
+});
