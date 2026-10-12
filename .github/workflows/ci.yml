@@ -119,7 +119,7 @@ jobs:
               python3 -m pip install -q botocore==1.43.82 && python3 -m unittest discover -s tests/agentcore -p 'test_*.py'
               npm run test:cad-code
           - lane: physics
-            tools: { blender: "true", sandbox: "true", cadquery: "true", physics: "true", robots: "true" }
+            tools: { blender: "true", sandbox: "true", cadquery: "true", physics: "true", botorch: "true", robots: "true" }
             run: npm run test:fea && npm run test:robot && npm run test:optimize && npm run test:optimize-pillow && npm run test:package && npm run test:cad-sweep && node --env-file-if-exists=.state/demo.env --import tsx --test tests/surrogate.test.ts
           - lane: cam
             tools: { cadquery: "true", cam: "true" }
@@ -153,6 +153,7 @@ jobs:
           sandbox: ${{ matrix.tools.sandbox || 'false' }}
           cadquery: ${{ matrix.tools.cadquery || 'false' }}
           physics: ${{ matrix.tools.physics || 'false' }}
+          botorch: ${{ matrix.tools.botorch || 'false' }}
           logistics: ${{ matrix.tools.logistics || 'false' }}
           cam: ${{ matrix.tools.cam || 'false' }}
           robots: ${{ matrix.tools.robots || 'false' }}

@@ -23,3 +23,27 @@ test("dataset designs are reproducible, start at the reference design and stay i
     for (const p of a.first) for (const [k, [lo, hi]] of Object.entries(fam.bounds as Record<string, [number, number]>)) assert.ok(p[k] >= lo && p[k] <= hi, `${k}=${p[k]}`);
   }
 });
+
+test("measure (local job) → featurize → train → predict: reproducible end to end, predictions carry no authority", { skip: PY && process.env.PAI_CADQUERY_PYTHON && process.env.PAI_CCX ? false : "needs the physics and CadQuery toolchains" }, async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "pai-surrogate-"));
+  const run = (py: string, args: string[]) => execFileSync(py, ["-I", "-W", "ignore", ...args], { encoding: "utf8", timeout: 900_000 });
+  try {
+    run(PY!, ["native/surrogate_dataset.py", "--spec", "native/surrogate-datasets/fea-bracket-v1.json", "--output", join(dir, "d"), "--backend", "local", "--limit", "12", "--concurrency", "3"]);
+    const manifest = JSON.parse(await readFile(join(dir, "d", "manifest.json"), "utf8"));
+    assert.equal(manifest.attempted, 12); assert.ok(manifest.measured >= 10, JSON.stringify(manifest));
+    const row0 = JSON.parse((await readFile(join(dir, "d", "rows.jsonl"), "utf8")).split("\n")[0]);
+    assert.deepEqual([row0.mass, row0.deflectionMm, row0.stressMPa], [48.368, 0.0478, 49], "reference bracket measured as in the FEA lane");
+    for (const out of ["f1.npz", "f2.npz"]) run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--dataset", join(dir, "d"), "--output", join(dir, out)]);
+    const train = (o: string) => JSON.parse(run(PY!, ["native/surrogate_train.py", "train", "--features", join(dir, "f1.npz"), "--output", join(dir, o), "--members", "1", "--epochs", "3"]).trim().split("\n").at(-1)!);
+    const a = train("m1"), b = train("m2");
+    assert.equal(a.weightsSha256, b.weightsSha256, "training is bit-reproducible");
+    run(process.env.PAI_CADQUERY_PYTHON!, ["native/surrogate_featurize.py", "--step", join(dir, "d", "points", "0000", "part.step"), "--output", join(dir, "one.npz")]);
+    const p = JSON.parse(run(PY!, ["native/surrogate_train.py", "predict", "--weights", join(dir, "m1", "weights.pt"), "--features", join(dir, "one.npz")]));
+    assert.equal(p.authority, "suggestion"); assert.ok(p.deflectionMm > 0 && p.stressMPa > 0 && p.mass > 0);
+    const f1 = await readFile(join(dir, "f1.npz")), f2 = await readFile(join(dir, "f2.npz"));
+    assert.ok(f1.equals(f2), "features are deterministic");
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
