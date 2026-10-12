@@ -6,7 +6,8 @@ export const TenantConfig = z.object({
   id: z.string().regex(TENANT_ID), clientId: z.string().regex(/^[a-z0-9]{1,128}$/),
   maxConcurrentRuns: z.number().int().min(1).max(20).default(2), maxRunsPerDay: z.number().int().min(1).max(1000).default(50),
 }).strict();
-export type Tenant = z.infer<typeof TenantConfig>;
+/** A tenant; `clientId` only for deployment tenants with an OAuth client (invited tenants are stored, src/members.ts). */
+export type Tenant = Omit<z.infer<typeof TenantConfig>, "clientId"> & { clientId?: string };
 
 /** `PAI_TENANTS`: JSON array of tenants; ids and client ids must be unique; never the reserved workspace id. */
 export function parseTenants(value?: string): Tenant[] {

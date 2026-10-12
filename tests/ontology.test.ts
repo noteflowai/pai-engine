@@ -55,7 +55,7 @@ test("links and actions reference real object types; parameters export as JSON S
   const d = describeOntology();
   for (const a of d.actionTypes) if ("parameters" in a) assert.equal(typeof a.parameters, "object", a.id);
   // Only body-less actions (path id only) and the adapter-specific sample request go without a declared schema.
-  const BODYLESS = ["revokeAutonomy", "validateArtifact", "resumeWorkflowRun", "sampleArtifactInput"];
+  const BODYLESS = ["revokeAutonomy", "validateArtifact", "resumeWorkflowRun", "sampleArtifactInput", "resendTenantInvitation"];
   assert.deepEqual(d.actionTypes.filter(a => !("parameters" in a)).map(a => a.id).sort(), [...BODYLESS].sort());
   const ttl = ontologyTurtle();
   const declared = new Set([...ttl.matchAll(/^pai:(\w+) a owl:Class/gm)].map(m => m[1]));
@@ -121,7 +121,7 @@ test("agents read only the kinds /api/agent/state already exposes; artifact file
 test("action parameters are the very schemas the routes parse", async () => {
   const src = (await sources()).join("\n");
   const modules = ["contracts", "scenes", "cad", "sweep", "optimize", "inspection", "aero", "factory", "assistant", "ai", "autonomy", "autopilot", "proposals",
-    "release", "signing", "bundle", "artifacts/registry", "artifacts/workflows", "tenants"];
+    "release", "signing", "bundle", "artifacts/registry", "artifacts/workflows", "tenants", "members"];
   const exported: [string, unknown][] = [];
   for (const m of modules) exported.push(...Object.entries(await import(`../src/${m}.js`) as Record<string, unknown>));
   for (const a of ACTION_TYPES.filter(x => x.parameters)) {

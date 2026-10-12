@@ -17,6 +17,7 @@ import { Evidence } from "./views/evidence";
 import { FeedbackView } from "./views/feedback";
 import { Deliver } from "./views/deliver";
 import { Artifacts } from "./views/artifacts";
+import { loadSession, NoAccess, TenantPortal, type Session } from "./tenant-portal";
 import { runScene } from "./actions";
 import { MATURITY } from "./context";
 import "./style.css";
@@ -207,7 +208,16 @@ function BuildBadge({ build }: { build: NonNullable<State["build"]> }) {
   const t = (localStorage.getItem("pai-theme") as Theme | null) ?? "system";
   document.documentElement.dataset.theme = t === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t;
 }
-createRoot(document.getElementById("root")!).render(<App />);
+/** Role first (default deny on the server): maintainers get the workbench, tenant members their portal, others nothing. */
+function Root() {
+  const [session, setSession] = useState<Session>();
+  useEffect(() => { void loadSession().then(setSession).catch(() => setSession({ role: "maintainer", logoutUrl: null })); }, []);
+  if (!session) return <div className="boot">正在加载工作区…</div>;
+  if (session.role === "tenant") return <TenantPortal session={{ tenant: session.tenant!, email: session.email!, logoutUrl: session.logoutUrl }} />;
+  if (session.role === "none") return <NoAccess logoutUrl={session.logoutUrl} />;
+  return <App />;
+}
+createRoot(document.getElementById("root")!).render(<Root />);
 // No service worker: a registered one broke the hosted sign-in (see web/public/sw.js). Remove any left from older releases.
 if ("serviceWorker" in navigator) void navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister()))).catch(() => undefined);
 if ("caches" in self) void caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith("pai-shell-")).map(k => caches.delete(k)))).catch(() => undefined);

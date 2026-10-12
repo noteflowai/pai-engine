@@ -22,8 +22,8 @@ const download = (name: string, value: unknown) => {
 };
 
 const ADAPTER_LABEL: Record<string, string> = { "logistics-pdptw": "场外物流规划（车辆路径）", "yard-admission": "场地准入与排队调度（CP-SAT）" };
-const ROUTE_SCENARIOS = [["normal", "常规（40 单 / 8 车）"], ["tight", "收窄送货时间窗"], ["overload", "单票超重 9 t"]] as const;
-const YARD_SCENARIOS = [["normal", "常规班次（24 车 / 4 h）"], ["peak", "高峰（40 车 / 90 min）"], ["overload", "含无月台可接的危险品车"]] as const;
+export const ROUTE_SCENARIOS = [["normal", "常规（40 单 / 8 车）"], ["tight", "收窄送货时间窗"], ["overload", "单票超重 9 t"]] as const;
+export const YARD_SCENARIOS = [["normal", "常规班次（24 车 / 4 h）"], ["peak", "高峰（40 车 / 90 min）"], ["overload", "含无月台可接的危险品车"]] as const;
 export function Artifacts() {
   const c = useApp();
   const [artifacts, setArtifacts] = useState<Summary[]>([]);
@@ -132,7 +132,8 @@ function Tenants({ workflows, act, reason }: { workflows: Workflow[]; act: (f: (
   const run = (f: () => Promise<unknown>, m: string) => act(async () => { await f(); await load(); }, m);
   const chosen = workflow || workflows.at(-1)?.id || "";
   return <Card title="邀请制租户" aside={<small>只提供制品全部已发布的流程 · 只记用量，不收费</small>} label="邀请制租户">
-    {tenants.length === 0 ? <Empty title="还没有配置租户">在部署 context 里加入租户后，这里可以把流程提供给它（见 DEPLOYMENT.md）。</Empty> : <>
+    <Members tenants={tenants} run={run} reason={reason} />
+    {tenants.length === 0 ? <Empty title="还没有租户">邀请第一个成员时可以同时新建租户；有 OAuth 客户端的租户来自部署配置（见 DEPLOYMENT.md）。</Empty> : <>
       <div className="table-wrap"><table className="data-table"><thead><tr><th scope="col">租户</th><th scope="col">并发 / 日上限</th><th scope="col">运行</th><th scope="col">原生计算</th></tr></thead>
         <tbody>{tenants.map(t => <tr key={t.id}><td>{t.id}</td><td>{t.maxConcurrentRuns} / {t.maxRunsPerDay}</td><td>{t.usage.runs}</td>
           <td>{t.usage.native.wallSeconds === null ? "未知" : `${t.usage.native.wallSeconds} s`}</td></tr>)}</tbody></table></div>
@@ -151,6 +152,47 @@ function Tenants({ workflows, act, reason }: { workflows: Workflow[]; act: (f: (
         const r = reason("撤销理由（至少 5 个字）"); if (r) void run(() => api(`/v1/offerings/${o.id}/revoke`, { reason: r }), "已撤销。");
       }}>撤销</button>}</li>)}</ul>}
   </Card>;
+}
+
+type Member = { id: string; tenant: string; email: string; state: "inviting" | "invited" | "active" | "revoked" | "failed"; invitedAt: string; lastSeenAt: string | null; invitations: number; error: string | null };
+const MEMBER: Record<Member["state"], [string, "ok" | "warn" | "bad" | "muted"]> = { inviting: ["发送中", "warn"], invited: ["已邀请，未登录", "warn"], active: ["已登录", "ok"], revoked: ["已撤销", "muted"], failed: ["邀请失败", "bad"] };
+/**
+ * Invite a person by e-mail to a tenant (new or existing). Cognito e-mails the login address, the username and a
+ * temporary password; the first sign-in sets a new one. Revoking ends access on the next request.
+ */
+function Members({ tenants, run, reason }: { tenants: TenantRow[]; run: (f: () => Promise<unknown>, m: string) => Promise<boolean>; reason: (l: string) => string | undefined }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [email, setEmail] = useState(""), [tenant, setTenant] = useState(""), [fresh, setFresh] = useState(""), [conc, setConc] = useState(2), [daily, setDaily] = useState(50);
+  const load = useCallback(async () => setMembers((await api<{ members: Member[] }>("/v1/tenant-members", undefined)).members), []);
+  useEffect(() => { void load().catch(() => undefined); }, [load]);
+  const act = (f: () => Promise<unknown>, m: string) => run(async () => { await f(); await load(); }, m);
+  const target = tenant || tenants[0]?.id || "__new";
+  const creating = target === "__new";
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && (!creating || /^[a-z][a-z0-9-]{1,39}$/.test(fresh));
+  return <section aria-label="租户成员" className="members">
+    <h3>邀请成员</h3>
+    <div className="field-grid">
+      <label>邮箱<input type="email" autoComplete="off" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@company.com" /></label>
+      <label>租户<select value={target} onChange={e => setTenant(e.target.value)}>{tenants.map(t => <option key={t.id} value={t.id}>{t.id}</option>)}<option value="__new">＋ 新建租户…</option></select></label>
+      {creating && <><label>新租户编号<input value={fresh} onChange={e => setFresh(e.target.value.toLowerCase())} placeholder="例如 acme" aria-describedby="tenant-id-hint" /></label>
+        <label>并发上限<input type="number" min={1} max={20} value={conc} onChange={e => setConc(Number(e.target.value))} /></label>
+        <label>每日上限<input type="number" min={1} max={1000} value={daily} onChange={e => setDaily(Number(e.target.value))} /></label></>}
+    </div>
+    {creating && <small id="tenant-id-hint" className="muted">小写字母开头，2–40 位字母、数字或连字符。</small>}
+    <div className="button-row"><button type="button" disabled={!valid} onClick={() => {
+      const r = reason("邀请理由（记录在审计里，至少 5 个字）");
+      if (r) void act(async () => { await api("/v1/tenant-members", { email: email.trim(), tenant: creating ? fresh : target, ...(creating ? { newTenant: { maxConcurrentRuns: conc, maxRunsPerDay: daily } } : {}), reason: r }); setEmail(""); setFresh(""); },
+        "邀请已发送：对方会收到登录地址、用户名和临时密码，首次登录需设置新密码。");
+    }}>发送邀请</button></div>
+    {members.length > 0 && <div className="table-wrap"><table className="data-table"><caption className="visually-hidden">租户成员</caption>
+      <thead><tr><th scope="col">邮箱</th><th scope="col">租户</th><th scope="col">状态</th><th scope="col">最近访问</th><th scope="col"><span className="visually-hidden">操作</span></th></tr></thead>
+      <tbody>{members.map(m => <tr key={m.id}><td>{m.email}</td><td>{m.tenant}</td><td><Chip tone={MEMBER[m.state][1]}>{MEMBER[m.state][0]}</Chip>{m.error && <small className="bad-text"> {m.error}</small>}</td>
+        <td>{m.lastSeenAt ? time(m.lastSeenAt) : "—"}</td>
+        <td className="button-row">{m.state === "invited" && <button type="button" className="secondary compact" onClick={() => void act(() => api(`/v1/tenant-members/${m.id}/invitation`, {}), "邀请已重新发送。")}>重发邀请</button>}
+          {(m.state === "invited" || m.state === "active") && <button type="button" className="secondary compact" onClick={() => {
+            const r = reason(`撤销 ${m.email} 的访问（理由至少 5 个字）`); if (r) void act(() => api(`/v1/tenant-members/${m.id}/revoke`, { reason: r }), "已撤销：对方下一次请求即被拒绝。");
+          }}>撤销</button>}</td></tr>)}</tbody></table></div>}
+  </section>;
 }
 
 type YardPlan = { status: string; plan: { truck: string; admitted: boolean; entry?: number; dock?: string; handleStart?: number; departure?: number }[];

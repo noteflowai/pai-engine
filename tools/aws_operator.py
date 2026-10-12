@@ -55,6 +55,9 @@ elif args.action in ("send", "apply-release"):
                      "PAI_PACKAGE_ARCHIVE_BUCKET": outputs.get("PackageArchiveBucket", "") if os.environ.get("PAI_ENABLE_PACKAGE_ARCHIVE") == "1" else "",
                      "PAI_PACKAGE_RETENTION_DAYS": outputs.get("PackageRetentionDays", ""),
                      "PAI_TSA_URL": os.environ.get("PAI_TSA_URL", "http://timestamp.digicert.com")}
+        # Maintainers by username (the initial administrator); the instance resolves them to subjects (default-deny roles).
+        admin = json.loads(operator.client("secretsmanager").get_secret_value(SecretId=outputs["AdminSecretArn"])["SecretString"])["username"]
+        variables["PAI_MAINTAINER_USERNAMES"] = admin
         for opt_in in ("PAI_PHYSICS_BOTORCH", "PAI_PHYSICS_NEWTON", "PAI_ROBOTS", "PAI_DECIDER"):
             if os.environ.get(opt_in) == "1":
                 variables[opt_in] = "1"

@@ -235,6 +235,26 @@ if [ "$(cat "$DROPIN" 2>/dev/null)" != "$WANT" ]; then
   printf '%s\n' "$WANT" > "$DROPIN"
   systemctl daemon-reload
 fi
+# Default-deny roles (src/members.ts): maintainers by immutable Cognito subject, resolved here from the usernames the
+# operator passes (the initial administrator). Without them the new release refuses to start, so fail before switching.
+if [ -n "${PAI_MAINTAINER_USERNAMES:-}" ]; then
+  POOL=$(sed -n 's#^PAI_AUTH_ISSUER=https://cognito-idp\.[a-z0-9-]*\.amazonaws\.com/##p' /etc/pai/runtime.env | tail -1)
+  BOTO=$(for p in /var/lib/pai/data/state/tools/*/bin/python; do "$p" -c "import boto3" 2>/dev/null && echo "$p" && break; done)
+  SUBS=$("$BOTO" - "$POOL" "$PAI_MAINTAINER_USERNAMES" <<'PY'
+import boto3, re, sys
+pool, names = sys.argv[1], [n for n in sys.argv[2].split(",") if n]
+c = boto3.client("cognito-idp", region_name=pool.split("_")[0])
+subs = []
+for n in names:
+    a = {x["Name"]: x["Value"] for x in c.admin_get_user(UserPoolId=pool, Username=n)["UserAttributes"]}
+    if not re.fullmatch(r"[0-9a-f-]{36}", a.get("sub", "")): raise SystemExit(f"no subject for maintainer {n}")
+    subs.append(a["sub"])
+print(",".join(subs))
+PY
+  ) || { echo "Could not resolve the maintainers' subjects; the current release keeps running" >&2; exit 1; }
+  sed -i '/^PAI_MAINTAINER_SUBS=/d' /etc/pai/runtime.env
+  printf 'PAI_MAINTAINER_SUBS=%s\n' "$SUBS" >> /etc/pai/runtime.env
+fi
 PREVIOUS=$(readlink -f /opt/pai/current)
 systemctl stop pai-workbench.service
 ln -sfn "$RELEASE" /opt/pai/current.next

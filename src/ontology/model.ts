@@ -31,6 +31,7 @@ import { CreateArtifact, Transition } from "../artifacts/registry.js";
 import { PackageSubmission } from "../signing.js";
 import { Bundle } from "../bundle.js";
 import { OfferWorkflow, RevokeOffering, TenantRunRequest } from "../tenants.js";
+import { InviteMember, RevokeMember, TenantSample } from "../members.js";
 import { Decision as RunDecision, StartRun, WorkflowDefinition } from "../artifacts/workflows.js";
 
 export const ONTOLOGY_SCHEMA = "pai-ontology-1";
@@ -94,6 +95,8 @@ export const OBJECT_TYPES: ObjectType[] = [
   T("WorkflowRun", "workflow-run", "流程运行", "Activity", "id", "One run: per-node outputs, receipts and pai-usage-1; no automatic retry.", ["workflowId", "state", "tenant"]),
   T("Offering", "offering", "对外提供", "Entity", "workflowId", "A maintainer's offer of one workflow (at its digest) to invite-only tenants; revocable.", ["workflowId", "workflowDigest", "tenants", "state", "createdAt"]),
   T("AuditEvent", "audit-event", "审计记录", "Activity", "action", "One write attempt through an action: action, caller, actor, path ids, outcome and duration; never the request body. Append-only.", ["at", "action", "caller", "actor", "status", "outcome"], true),
+  T("Tenant", "tenant", "租户", "Agent", "id", "An invite-only customer organisation with run quotas; created with its first invitation (tenants with an OAuth client come from the deployment).", ["maxConcurrentRuns", "maxRunsPerDay", "createdAt"]),
+  T("TenantMember", "tenant-member", "租户成员", "Agent", "email", "A person invited by e-mail to use a tenant's offered workflows in the browser; default deny, revocable at once. Personal data: maintainers only.", ["tenantId", "state", "invitedAt"]),
   T("Engine", null, "原生引擎", "Agent", "name", "A native solver or model the platform runs (computed from configuration and pins; not stored).", ["name", "version", "available"]),
 ];
 
@@ -115,6 +118,7 @@ export const LINK_TYPES: LinkType[] = [
   L("ReleaseSeal.release", "ReleaseSeal", "releaseId", "Release", "wasDerivedFrom"),
   L("WorkflowRun.workflow", "WorkflowRun", "workflowId", "Workflow", "used"),
   L("Offering.workflow", "Offering", "workflowId", "Workflow", "used"),
+  L("TenantMember.tenant", "TenantMember", "tenantId", "Tenant", "wasAssociatedWith"),
 ];
 
 const A = (id: string, label: string, method: ActionType["method"], route: string, writes: string[], effect: Effect,
@@ -168,6 +172,10 @@ export const ACTION_TYPES: ActionType[] = [
   A("revokeOffering", "撤销对外提供", "POST", "/api/v1/offerings/:id/revoke", ["Offering"], "transition", M, RevokeOffering),
   A("startTenantRun", "租户运行流程", "POST", "/api/v1/tenant/runs", ["WorkflowRun"], "execute-native", ["tenant"], TenantRunRequest, true),
   A("decideTenantRunStep", "租户确认节点", "POST", "/api/v1/tenant/runs/:id/decisions", ["WorkflowRun"], "execute-native", ["tenant"], RunDecision, true),
+  A("inviteTenantMember", "邀请租户成员", "POST", "/api/v1/tenant-members", ["TenantMember", "Tenant"], "create", M, InviteMember),
+  A("resendTenantInvitation", "重发邀请", "POST", "/api/v1/tenant-members/:id/invitation", ["TenantMember"], "update", M),
+  A("revokeTenantMember", "撤销租户成员", "POST", "/api/v1/tenant-members/:id/revoke", ["TenantMember"], "transition", M, RevokeMember),
+  A("sampleTenantInput", "租户生成样例输入", "POST", "/api/v1/tenant/samples", [], "verify", ["tenant"], TenantSample),
   A("resumeWorkflowRun", "恢复流程", "POST", "/api/v1/workflow-runs/:id/resume", ["WorkflowRun"], "execute-native", M, undefined, true),
 ];
 
