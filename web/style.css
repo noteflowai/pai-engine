@@ -808,3 +808,11 @@ body.viewport-focus { overflow: hidden; }
   .viewport.maximized .viewport-side { max-height: 38dvh; overflow: auto; }
   .viewport .top-right .hud-max { font-weight: 700; }
 }
+
+/* Tenant member portal (web/tenant-portal.tsx). */
+.tenant-portal .topbar { justify-content: space-between; }
+.tenant-who { color: var(--ink-2); font-size: 13px; margin-left: auto; }
+.tenant-main { max-width: 960px; margin: 0 auto; padding: 28px 20px 60px; display: grid; gap: 16px; }
+.tenant-runs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.tenant-runs li { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+@media (max-width: 600px) { .tenant-who { display: none; } }

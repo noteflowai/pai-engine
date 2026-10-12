@@ -41,6 +41,8 @@ export interface Config {
   claudeBedrockRegion?: string;
   listenHost?: string; publicOrigin?: string;
   albAuth?: { albArn: string; issuer: string; clientId: string };
+  /** Verified subjects (Cognito sub) of maintainers; hosted sessions not listed here or as an active tenant member get no access. */
+  maintainerSubs?: string[];
   /** Machine agents (OAuth client credentials) for `/api/agent/*`; see src/agent-api.ts. */
   agentAuth?: { userPoolId: string; clientIds: string[]; /** Pre-loaded JWKS (tests, air-gapped hosts); otherwise fetched from the pool. */ jwks?: unknown };
   authLogoutUrl?: string;
@@ -107,9 +109,13 @@ export function configuration(): Config {
   const tenants = parseTenants(process.env.PAI_TENANTS);
   if (tenants.length && !agentPool && publicOrigin) throw new Error("PAI_TENANTS on a hosted site requires the agent user pool");
   // Tenant clients are verified by the same pool; their tokens carry only the tenant scope.
-  const agentAuth = agentPool ? { userPoolId: agentPool, clientIds: [...new Set([...agentClients!, ...tenants.map(t => t.clientId)])] } : undefined;
+  const agentAuth = agentPool ? { userPoolId: agentPool, clientIds: [...new Set([...agentClients!, ...tenants.flatMap(t => t.clientId ? [t.clientId] : [])])] } : undefined;
   const listenHost = process.env.PAI_LISTEN_HOST ?? "127.0.0.1";
   if (listenHost !== "127.0.0.1" && (!publicOrigin || !albAuth)) throw new Error("Network binding requires HTTPS origin and ALB authentication");
+  // Default deny for hosted sessions: maintainers are named by subject; an empty list would lock everyone out, so it is required.
+  const maintainerSubs = (process.env.PAI_MAINTAINER_SUBS ?? "").split(",").map(x => x.trim()).filter(Boolean);
+  if (maintainerSubs.some(x => !/^[0-9a-f-]{36}$/.test(x))) throw new Error("PAI_MAINTAINER_SUBS must list Cognito subjects (UUIDs)");
+  if (albAuth && !maintainerSubs.length) throw new Error("PAI_MAINTAINER_SUBS is required with ALB authentication (default-deny roles)");
   return {
     repository, workspace, state: resolve(process.env.PAI_STATE ?? resolve(repository, ".state")),
     web: resolve(process.env.PAI_WEB ?? resolve(repository, "web-dist")),
@@ -145,7 +151,7 @@ export function configuration(): Config {
     agentcoreSandboxArn: validRuntimeArn(process.env.PAI_AGENTCORE_SANDBOX_ARN),
     aiProfiles: aiProfiles(process.env.PAI_AI_PROFILES),
     claudeBedrockRegion: /^[a-z]{2}(-[a-z]+)+-\d$/.test(process.env.PAI_CLAUDE_BEDROCK_REGION ?? "") ? process.env.PAI_CLAUDE_BEDROCK_REGION : undefined,
-    listenHost, publicOrigin, albAuth, agentAuth,
+    listenHost, publicOrigin, albAuth, agentAuth, maintainerSubs,
     authLogoutUrl: process.env.PAI_AUTH_LOGOUT_URL,
     tenants,
   };

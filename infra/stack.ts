@@ -52,6 +52,13 @@ export class WorkbenchStack extends cdk.Stack {
       signInAliases: { username: true }, accountRecovery: cognito.AccountRecovery.NONE,
       passwordPolicy: { minLength: 14, requireDigits: true, requireLowercase: true, requireUppercase: true, requireSymbols: true },
       mfa: cognito.Mfa.OPTIONAL, mfaSecondFactor: { otp: true, sms: false },
+      // Tenant member invitations (src/members.ts): Cognito e-mails the address, the username and a temporary password.
+      userInvitation: {
+        emailSubject: "PAI Engine 邀请：登录信息",
+        emailBody: `您好，管理员邀请您使用 PAI Engine（面向物理世界的可信决策引擎）。<br/><br/>登录地址：https://${domain}<br/>用户名：{username}<br/>临时密码：{####}<br/><br/>`
+          + "首次登录时需要设置新密码；临时密码 7 天内有效，过期后请联系管理员重新发送邀请。<br/>如果您没有预期收到这封邮件，请忽略它。",
+        smsMessage: "PAI Engine 用户名 {username}，临时密码 {####}",
+      },
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     const client = pool.addClient("AlbClient", {
@@ -122,6 +129,10 @@ export class WorkbenchStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
       managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore")],
     });
+    // Tenant member invitations and revocation (src/members.ts): these four calls on this pool only; no deletion, no
+    // pool configuration, no passwords.
+    role.addToPolicy(new iam.PolicyStatement({ actions: ["cognito-idp:AdminCreateUser", "cognito-idp:AdminDisableUser", "cognito-idp:AdminUserGlobalSignOut",
+      "cognito-idp:AdminGetUser"], resources: [pool.userPoolArn] }));
     const releasePath = resolve("../.state/deploy/release.tgz");
     const asset = new assets.Asset(this, "Release", {
       path: releasePath,

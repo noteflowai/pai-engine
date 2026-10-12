@@ -267,3 +267,60 @@ test("project switcher: same-titled tasks told apart, search, keyboard, recent f
     await expect(trigger).toBeFocused();
   }
 });
+
+test("tenant member portal and no-access page: only the tenant's workflows, run, approve; accessible at phone width", async ({ page }) => {
+  // The server enforces the scope (tests/members.test.ts); here the browser is given a tenant session to check the portal itself.
+  const run = { id: "11111111-2222-4333-8444-555555555555", workflowId: "site-admission-plan@1", state: "waiting-approval", createdAt: new Date().toISOString(), error: null,
+    nodes: { schedule: { state: "succeeded", status: "partial", outputs: ["plan"] }, controller: { state: "waiting-approval", status: "awaiting decision", outputs: [] } } };
+  const calls: string[] = [];
+  await page.route("**/api/session", r => r.fulfill({ json: { role: "tenant", tenant: "nova", email: "ops@example.com", logoutUrl: "/logout" } }));
+  await page.route("**/api/v1/tenant/**", r => {
+    const u = new URL(r.request().url()); calls.push(`${r.request().method()} ${u.pathname}`);
+    if (u.pathname.endsWith("/catalog")) return r.fulfill({ json: { tenant: "nova", quotas: { maxConcurrentRuns: 1, maxRunsPerDay: 5 }, workflows: [{ id: "site-admission-plan@1", title: "场地准入计划", artifacts: ["yard-admission@1.0.0"] }] } });
+    if (u.pathname.endsWith("/usage")) return r.fulfill({ json: { runs: 1, native: { wallSeconds: 12.5 }, billed: false } });
+    if (u.pathname.endsWith("/runs") && r.request().method() === "GET") return r.fulfill({ json: { runs: [run] } });
+    return r.fulfill({ json: { ...run, state: "succeeded" } });
+  });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 860 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "可用流程" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /选择已有任务/ })).toHaveCount(0); // no workbench chrome
+    await expect(page.getByRole("combobox", { name: /^流程/ })).toContainText("场地准入计划");
+    await expect(page.getByRole("combobox", { name: /^示例实例/ })).toContainText("高峰");
+    await expect(page.getByRole("button", { name: "确认 controller" })).toBeVisible();
+    expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations.filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  }
+  page.once("dialog", d => void d.accept("核对后确认（测试）"));
+  await page.getByRole("button", { name: "确认 controller" }).click();
+  await expect(page.getByRole("status")).toHaveText("已确认。");
+  expect(calls).toContain("POST /api/v1/tenant/runs/11111111-2222-4333-8444-555555555555/decisions");
+  expect(calls.every(c => c.includes("/api/v1/tenant/")), "the portal calls tenant routes only").toBe(true);
+  // No role: nothing but the way out.
+  await page.unroute("**/api/session");
+  await page.route("**/api/session", r => r.fulfill({ json: { role: "none", logoutUrl: "/logout" } }));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "没有访问权限" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "退出登录" })).toBeVisible();
+});
+
+test("maintainer: invitation form validates the address and offers a new tenant with quotas", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/#/artifacts");
+  const members = page.getByRole("region", { name: "租户成员" });
+  const send = members.getByRole("button", { name: "发送邀请" });
+  await members.getByLabel("邮箱").fill("not-an-address");
+  await expect(send).toBeDisabled();
+  await members.getByLabel("邮箱").fill("ops@example.com");
+  await members.getByRole("combobox", { name: /^租户/ }).selectOption("__new");
+  await expect(send).toBeDisabled(); // a new tenant needs an id
+  await members.getByLabel("新租户编号").fill("nova");
+  await expect(members.getByLabel("每日上限")).toHaveValue("50");
+  await expect(send).toBeEnabled();
+  // Local development has no identity provider: the request is refused, nothing is created.
+  page.once("dialog", d => void d.accept("浏览器测试邀请"));
+  await send.click();
+  await expect(page.getByText(/INVITES_UNAVAILABLE/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});

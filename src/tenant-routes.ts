@@ -14,6 +14,8 @@ import { DomainError } from "./domain.js";
 import type { Store } from "./store.js";
 import type { Define } from "./kernel/actions.js";
 import { decideRun, runData, startRun, type WorkflowRun } from "./artifacts/workflows.js";
+import { allTenants, inviteMember, memberView, resendInvitation, revokeMember, TenantSample, type Directory, type TenantMember } from "./members.js";
+import { sampleInput } from "./artifacts/registry.js";
 import { catalog, checkQuota, offeredWorkflow, offerWorkflow, revokeOffering, TenantRunRequest, tenantRun, tenantUsage, type Offering, type Tenant } from "./tenants.js";
 
 type Execute = <T extends { id: string; state: string }>(reply: FastifyReply, input: unknown, kind: RecordKind, route: string, execute: () => Promise<T>) => Promise<T>;
@@ -28,18 +30,32 @@ const view = (r: WorkflowRun) => ({ id: r.id, workflowId: r.workflowId, state: r
   nodes: Object.fromEntries(Object.entries(r.nodes).map(([id, n]) => [id, { state: n.state, status: n.status ?? null, outputs: n.outputs ? Object.keys(n.outputs) : [], usage: n.usage ?? null }])) });
 
 export function tenantRoutes(app: FastifyInstance, d: { store: Store; config: Config; actor: (h: Record<string, unknown>) => string; executeNative: Execute;
-  tenant: (raw: unknown) => Tenant | undefined; track: (job: Promise<unknown>) => void; action: Define }) {
+  tenant: (raw: unknown) => Tenant | undefined; track: (job: Promise<unknown>) => void; action: Define; directory?: Directory }) {
   const { store, config, action } = d;
-  const tenants = config.tenants ?? [];
+  const tenants = () => allTenants(store, config);
   const me = (raw: unknown) => { const t = d.tenant(raw); if (!t) throw new DomainError("TENANT_REQUIRED", "Tenant credentials required", 403); return t; };
 
   // Maintainer side.
-  app.get("/api/v1/tenants", async () => ({ tenants: tenants.map(t => ({ id: t.id, maxConcurrentRuns: t.maxConcurrentRuns, maxRunsPerDay: t.maxRunsPerDay, usage: tenantUsage(store, t) })) }));
+  app.get("/api/v1/tenants", async () => ({ tenants: tenants().map(t => ({ id: t.id, maxConcurrentRuns: t.maxConcurrentRuns, maxRunsPerDay: t.maxRunsPerDay, usage: tenantUsage(store, t) })) }));
   app.get("/api/v1/offerings", async () => store.list<Offering>("offering").reverse());
-  action("offerWorkflow", async ({ request }) => offerWorkflow(store, tenants, request.body, d.actor(request.headers)));
+  action("offerWorkflow", async ({ request }) => offerWorkflow(store, tenants(), request.body, d.actor(request.headers)));
   action("revokeOffering", async ({ request }) => revokeOffering(store, RunId.parse(request.params).id, request.body, d.actor(request.headers)));
 
+  // Members: people invited by e-mail to a tenant (src/members.ts). Personal data: maintainer routes only.
+  app.get("/api/v1/tenant-members", async () => ({ members: store.list<TenantMember>("tenant-member").reverse().map(memberView) }));
+  action("inviteTenantMember", async ({ request }) => inviteMember(store, config, d.directory, request.body, d.actor(request.headers)));
+  action("resendTenantInvitation", async ({ request }) => resendInvitation(store, d.directory, RunId.parse(request.params).id));
+  action("revokeTenantMember", async ({ request }) => revokeMember(store, d.directory, RunId.parse(request.params).id, request.body, d.actor(request.headers)));
+
   // Tenant side (internal paths; reachable from outside only as /api/agent/v1/tenant/...).
+  // A labelled synthetic input for an offered workflow, from its first artifact's own generator.
+  action("sampleTenantInput", async ({ request }) => {
+    const t = me(request.raw), req = TenantSample.parse(request.body);
+    const wf = offeredWorkflow(store, t, req.workflow);
+    const ref = (wf.definition.nodes.find(n => n.type === "artifact") as { artifact: string } | undefined)?.artifact;
+    if (!ref) throw new DomainError("NO_SAMPLES", "This workflow has no artifact to generate an input", 404);
+    return sampleInput(store, config, ref, req.params);
+  });
   app.get("/api/v1/tenant/catalog", async request => catalog(store, me(request.raw)));
   app.get("/api/v1/tenant/usage", async request => tenantUsage(store, me(request.raw), UsageQuery.parse(request.query).since));
   app.get("/api/v1/tenant/runs", async request => {

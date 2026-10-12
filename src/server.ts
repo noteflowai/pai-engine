@@ -48,13 +48,14 @@ import { DEFAULT_OPTIMIZE_BUDGET, MAX_OPTIMIZE_EVALUATIONS, botorchVersion, opti
 import { KIND_STORE, admission, createRelease, decideRelease, supersedeForRevision, type Release } from "./release.js";
 import { acquireRuntime } from "./runtime-lock.js";
 import { authentication } from "./auth.js";
+import { cognitoDirectory, sessionRole, tenantSessionAllows, type Directory, type SessionRole } from "./members.js";
 import { artifactRoutes } from "./artifacts/routes.js";
 import { ontologyRoutes } from "./ontology/routes.js";
 import { WORKSPACE_FIELDS } from "./ontology/model.js";
 import { interruptRunning } from "./artifacts/workflows.js";
 import { agentAuthentication, agentRoute, rewriteAgentUrl, type AgentPrincipal } from "./agent-api.js";
 
-export async function createApp(config: Config, adapters: Adapters = new NativeAdapters(config)) {
+export async function createApp(config: Config, adapters: Adapters = new NativeAdapters(config), deps: { directory?: Directory; /** Test seam for hosted ALB verification. */ authenticated?: (h: Record<string, string | string[] | undefined>) => Promise<boolean> } = {}) {
   const app = Fastify({ logger: false, bodyLimit: 4_000_000, requestTimeout: 120_000, rewriteUrl: rewriteAgentUrl });
   // Every registered route, so the ontology contract test can prove each write route is exactly one action type.
   const routes: { method: string; url: string }[] = [];
@@ -71,16 +72,22 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   const live = new LiveBus();
   const workbench = new Workbench(store, adapters, config.state, live);
   const streams = new Set<() => void>();
-  const authenticated = authentication(config), agentAuthenticated = agentAuthentication(config);
+  const authenticated = deps.authenticated ?? authentication(config), agentAuthenticated = agentAuthentication(config);
   const principals = new WeakMap<object, AgentPrincipal>();
   const tenantOf = new WeakMap<object, Tenant>();
+  /** Browser sessions resolved to a role (default deny, src/members.ts). */
+  const sessions = new WeakMap<object, SessionRole>();
+  // Hosted: the Cognito pool behind the ALB (issuer https://cognito-idp.<region>.amazonaws.com/<pool>).
+  const pool = config.albAuth ? /cognito-idp\.([a-z0-9-]+)\.amazonaws\.com\/([\w-]+_[\w]+)$/.exec(config.albAuth.issuer) : null;
+  const directory = deps.directory ?? (pool ? await cognitoDirectory(pool[2], pool[1]) : undefined);
   // Writes are ontology actions: the runtime authorizes the caller against the action's submitters and checks parameters.
   const action = actionRuntime(app, raw => {
     const tenant = tenantOf.get(raw as object), principal = principals.get(raw as object);
     return tenant ? { kind: "tenant", tenant: tenant.id } : principal?.scope ? { kind: "agent", scope: principal.scope } : { kind: "maintainer" };
   }, { record: event => store.insert("audit-event", event),
     actor: request => { const p = principals.get(request.raw); const t = tenantOf.get(request.raw);
-      return t ? `tenant:${t.id}` : p ? `agent:${p.clientId}` : config.albAuth && typeof request.headers["x-amzn-oidc-identity"] === "string"
+      const m = sessions.get(request.raw);
+      return m?.kind === "tenant" ? `tenant:${m.tenant.id}/member:${m.member.id}` : t ? `tenant:${t.id}` : p ? `agent:${p.clientId}` : config.albAuth && typeof request.headers["x-amzn-oidc-identity"] === "string"
         ? `cognito:${String(request.headers["x-amzn-oidc-identity"]).slice(0, 64)}` : "local-maintainer"; } });
   // Audit log: maintainers only (not in the workspace projection, so agents and tenants never see it). Newest first.
   app.get("/api/v1/audit", async request => {
@@ -118,6 +125,17 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
       return;
     }
     if (!healthCheck && !await authenticated(request.headers)) return reply.code(401).send({ error: "AUTHENTICATION_REQUIRED" });
+    if (!healthCheck) {
+      // Roles, default deny: a maintainer by subject, an active tenant member, or nothing (only /api/session answers).
+      const role = sessionRole(store, config, typeof request.headers["x-amzn-oidc-identity"] === "string" ? request.headers["x-amzn-oidc-identity"] : undefined);
+      sessions.set(request.raw, role);
+      const path = request.url.split("?")[0];
+      if (role.kind === "none" && path.startsWith("/api/") && path !== "/api/session") return reply.code(403).send({ error: "ACCESS_NOT_GRANTED" });
+      if (role.kind === "tenant") {
+        if (!tenantSessionAllows(request.method, request.url)) return reply.code(403).send({ error: "TENANT_SESSION_SCOPE" });
+        tenantOf.set(request.raw, role.tenant);
+      }
+    }
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && request.headers.origin
         && ![`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`, ...(config.publicOrigin ? [config.publicOrigin] : [])].includes(request.headers.origin)) {
       return reply.code(403).send({ error: "CROSS_ORIGIN_WRITE" });
@@ -195,7 +213,11 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   const actor = (headers: Record<string, unknown>) => config.albAuth && typeof headers["x-amzn-oidc-identity"] === "string"
     ? `cognito:${String(headers["x-amzn-oidc-identity"]).slice(0, 64)}` : "local-maintainer";
   artifactRoutes(app, { store, config, actor, executeNative, action, track: job => { const t = job.catch(() => undefined); activeJobs.add(t); void t.finally(() => activeJobs.delete(t)); } });
-  tenantRoutes(app, { store, config, actor, executeNative, action, tenant: raw => tenantOf.get(raw as object),
+  app.get("/api/session", async request => {
+    const r = sessions.get(request.raw) ?? { kind: "maintainer" as const };
+    return { role: r.kind, ...(r.kind === "tenant" ? { tenant: r.tenant.id, email: r.member.email } : {}), logoutUrl: config.authLogoutUrl ?? null };
+  });
+  tenantRoutes(app, { store, config, actor, executeNative, action, directory, tenant: raw => tenantOf.get(raw as object),
     track: job => { const t = job.catch(() => undefined); activeJobs.add(t); void t.finally(() => activeJobs.delete(t)); } });
   ontologyRoutes(app, store, config, JSON.parse(await readFile(join(config.repository, "tools/runtime-pins.json"), "utf8")), raw => Boolean(agentRoute(raw)));
   app.get("/api/projects/:id/ai-track-record", async request => trackRecord(store, workbench.project(paramId(request.params)).id));

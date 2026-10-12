@@ -107,4 +107,4 @@ export function tenantUsage(store: Store, tenant: Tenant, sinceIso?: string) {
     priceVersion: null, billed: false };
 }
 
-export const tenantOfClient = (config: Config, clientId: string) => config.tenants?.find(t => t.clientId === clientId);
+export const tenantOfClient = (config: Config, clientId: string) => clientId ? config.tenants?.find(t => t.clientId === clientId) : undefined;

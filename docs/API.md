@@ -125,6 +125,10 @@ A tenant is an OAuth client-credentials app client with the single scope `pai-ag
 
 | Route (maintainer) | Purpose |
 |---|---|
+| `GET /api/session` | The caller's role (default deny): `maintainer`, `tenant` (+ tenant, e-mail) or `none` |
+| `GET /api/v1/tenant-members` · `POST /api/v1/tenant-members` `{email, tenant, newTenant?, reason}` | Members (maintainers only; personal data). Inviting creates the Cognito user, which e-mails the login address, username and a temporary password; `newTenant` creates the tenant with its quotas |
+| `POST /api/v1/tenant-members/:id/invitation` · `POST /api/v1/tenant-members/:id/revoke` `{reason}` | Send the invitation again (only while not signed in); revoke (refused from the next request on, then the Cognito user is disabled and signed out) |
+| `POST /api/v1/tenant/samples` `{workflow, params}` | Tenant session or client: a labelled synthetic input for an offered workflow |
 | `GET /api/v1/tenants` | Configured tenants, quotas and usage (no client ids) |
 | `GET /api/v1/offerings` · `POST /api/v1/offerings` `{workflow, tenants, reason}` · `POST /api/v1/offerings/:id/revoke` `{reason}` | Offer a workflow (at its digest) to tenants; revoke |
 
