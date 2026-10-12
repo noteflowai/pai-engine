@@ -1,0 +1,130 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-bracket@1.0.0",
+ "digest": "d341a55ecfc642f45c5e45f3755055bf00e82bac734b7fd3b85ca372c87af208",
+ "state": "released",
+ "dataset": {
+  "id": "fea-bracket-v1",
+  "planned": 257,
+  "measured": 245,
+  "failed": 12,
+  "failedReason": "FEA could not identify the M5/M3 bore surfaces (plate height below ~41 mm; geometry checks also reject these parts)",
+  "solver": "CadQuery 2.8 / Gmsh 4.15.2 / CalculiX 2.21 on AWS Batch, one job per point",
+  "design": "scrambled Sobol (seed 20261012) + reference"
+ },
+ "model": {
+  "input": "2048 surface points with normals + surface area, volume, extents (no recipe parameters)",
+  "architecture": "PointNet deep ensemble, 5 members",
+  "selection": {
+   "method": "5-fold CV on training rows, log-space RMSE (standardised)",
+   "cvEpochs": 100,
+   "cv": {
+    "pointnet": 0.5763207674026489,
+    "pointnet+globals": 0.1211925595998764
+   },
+   "chosen": "pointnet+globals"
+  },
+  "trainRows": 205,
+  "heldOutRows": 40
+ },
+ "acceptance": {
+  "gate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "failed": [],
+  "metrics": {
+   "deflectionMm": {
+    "spearman": 0.999,
+    "medianRelError": 0.020753702447421085,
+    "p90RelError": 0.04138450870229692,
+    "maxRelError": 0.13055713021612286
+   },
+   "stressMPa": {
+    "spearman": 0.9984,
+    "medianRelError": 0.023309429984398194,
+    "p90RelError": 0.0498182562472658,
+    "maxRelError": 0.15768418511471352
+   },
+   "mass": {
+    "spearman": 0.9992,
+    "medianRelError": 0.003274427702092588,
+    "p90RelError": 0.008174897710718183,
+    "maxRelError": 0.015508558254610987
+   }
+  },
+  "conformal90Coverage": {
+   "deflectionMm": 1,
+   "stressMPa": 1,
+   "mass": 1
+  },
+  "reproducesTrainingReport": true
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9996,
+   "medianRelError": 0.0027900309447923067,
+   "p90RelError": 0.005366478646952659,
+   "maxRelError": 0.007601801286721463
+  },
+  "stressMPa": {
+   "spearman": 0.9987,
+   "medianRelError": 0.013144666287013041,
+   "p90RelError": 0.029108351142042837,
+   "maxRelError": 0.04773723377331563
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 3.635926839913894e-05,
+   "p90RelError": 0.0004588763223837338,
+   "maxRelError": 0.0020853606447669595
+  }
+ },
+ "liveCadReview": {
+  "note": "one hosted review (t=3.6, W=56, H=48, default load case); predicted before CalculiX, compared after; record only",
+  "baseline": {
+   "deflectionMm": [
+    0.0464,
+    0.0478
+   ],
+   "stressMPa": [
+    46.13,
+    49.0
+   ],
+   "massG": [
+    48.63,
+    48.37
+   ],
+   "inInterval": true
+  },
+  "candidate": {
+   "deflectionMm": [
+    0.0555,
+    0.0572
+   ],
+   "stressMPa": [
+    60.3,
+    60.0
+   ],
+   "massG": [
+    42.44,
+    42.1
+   ],
+   "inInterval": true
+  }
+ },
+ "authority": "suggestion (ranks and screens only; never a verdict)",
+ "physicalValidation": false
+}
