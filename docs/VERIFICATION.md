@@ -48,6 +48,13 @@ their original identities.
 - **CAD 与 FEA 在托管容器中（2026-10-11，`v0.9.0 · 8ffcb3a`）**：一次真实的 NEMA 17 支架评审（参数化 t=3 mm，带结构要求）：两次 `cadquery-native` 在 cad 镜像（`sha256:05170a34…`）、两次 `calculix-fea` 在 physics 镜像（`sha256:765e39dd…`）里运行，回执的 `cadquery-python` 与 `ccx` 记为镜像摘要；基准 48.37 g 全部通过，候选 37.36 g 因 `max-deflection` 被 CalculiX 否决，与本机 `test:fea` 一致。Blender 渲染仍在进程后端（GPU 一步再切）。同一次核验发现并修复了一个与容器无关的旧问题：`demo.env` 里的依赖路径指向一个已被清理的发布目录，CAD 评审在读源码摘要时失败（记录如实保留为 failed）；部署脚本现在把这些路径改写为持久状态路径。
 - **GPU 引擎容器（2026-10-11，`v0.9.0 · 166d359`，L4）**：CAD 评审的两次 Blender 渲染在 blender 镜像里用 OptiX（`PAI_RENDER_DEVICE OPTIX NVIDIA L4`；此前无头驱动缺 `libnvoptix`，退回 CUDA，现装同版本驱动 GL 库）；机器人单元评审 `accepted-static-scene`，MuJoCo 在 physics 镜像（CPU），Newton 在 newton 镜像用 CUDA，FK 偏差 3.24e-7 m（容差 1e-4）。结论与 CPU 进程后端相同，运行后无残留容器，回执 [engine-gpu-hosted.json](evidence/engine-gpu-hosted.json)。
 - **托管端到端（2026-10-12，`v0.9.0 · 1655225`，全部引擎容器 + Batch）**：在托管实例上以服务用户、服务环境和临时状态（不碰线上数据）跑 13 个核心端到端脚本，全部通过：CAD、FEA（挠度 0.0478/0.095 mm）、轴承座、机器人（节拍 5.897 → 4.598 s）、Blender、产线（通道 2.08 → 2.48 m）、物理寻优（AWS Batch）、证据包、制品、场地准入、签名发布包、CAM（Batch，节拍 94.59 min）、CFD（Batch，35° 拒绝 → 修正通过）。另以外部租户 glay 经互联网 OAuth 跑通场地准入流程（15 车 / 34 分 / `valid-schedule`，越权读取 404），界面 14 个视图在 1440 与 390 px 无溢出。过程中发现并修复：新 FEA 作业镜像的脚本目录对作业用户不可读（寻优端到端把参考件判为不可行，从而暴露）。回执 [hosted-e2e.json](evidence/hosted-e2e.json)。
+- **结构代理模型（2026-10-13，`structural-surrogate-bracket@1.0.0`，已发布）**：
+  - 数据集：257 个设计点，在 AWS Batch 上由 CalculiX 实测，245 个成功。12 个失败，原因是板高低于约 41 mm 时 FEA 找不到 M3/M5 孔面，这些零件几何检查本身也判为不合格。数据集还暴露了两个旧缺陷，已修复：圆柱面在裁剪曲面上读不出（#71），轴承座 GP 基线遇到常数参数会失败（#77）。
+  - 留出集 40 个：挠度、应力、质量的相对误差中位数分别为 2.1%、2.3%、0.33%，p90 为 4.1%、5.0%、0.8%，最大误差 13%、16%、1.6%；90% 共形区间覆盖率 100%。
+  - 集成模型自身给出的 2σ 只覆盖 40%，过于自信，所以区间改用共形方法。
+  - 用配方参数的 GP 基线更准，挠度误差 0.28%。
+  - 托管 CAD 评审：求解前预测、求解后对比，两组零件的实测值都落在区间内，误差 0.5%–6%。
+  - 回执见 [surrogate-bracket.json](evidence/surrogate-bracket.json)。
 
 ## 场地准入调度（2026-10-11）
 
