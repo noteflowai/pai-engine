@@ -34,6 +34,8 @@ if [ ! -e "$RELEASE/.state" ]; then ln -s /var/lib/pai/data/state "$RELEASE/.sta
 # is pruned (only the last 5 are kept). Point them at the persistent state they resolve to.
 if [ -f /var/lib/pai/data/state/demo.env ]; then sed -i -E 's#/opt/pai/releases/[0-9a-f]{64}/\.state/#/var/lib/pai/data/state/#g' /var/lib/pai/data/state/demo.env; fi
 chown -R pai:pai "$RELEASE"
+# State directories the service writes must be the service user's (operator scripts once created some as root).
+for d in surrogate surrogate/datasets surrogate/models; do if [ -d "/var/lib/pai/data/state/$d" ]; then chown pai:pai "/var/lib/pai/data/state/$d"; fi; done
 cd "$RELEASE"
 NODE_VERSION=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['node']['version'])" "$PAI_RELEASE/tools/runtime-pins.json")
 NODE_BIN="/var/lib/pai/data/state/tools/node-v$NODE_VERSION-linux-x64/bin"

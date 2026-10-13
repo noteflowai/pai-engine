@@ -16,7 +16,7 @@ if [ "$ACTION" = status ]; then
 fi
 [ -f "$D/manifest.json" ] || { echo "dataset $DATASET has no manifest yet" >&2; exit 2; }
 if systemctl is-active --quiet "$UNIT"; then echo "$UNIT is already running"; exit 0; fi
-install -d -o pai -g pai -m 0700 "$M"; systemctl reset-failed "$UNIT" 2>/dev/null || true
+install -d -o pai -g pai -m 0700 /var/lib/pai/data/state/surrogate /var/lib/pai/data/state/surrogate/models "$M"; systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemd-run --unit "$UNIT" --description "PAI surrogate training $DATASET" -p User=pai -p Group=pai -p NoNewPrivileges=true -p ProtectSystem=strict \
   -p ProtectHome=true -p PrivateTmp=true -p ReadWritePaths=/var/lib/pai/data -p CPUQuota=200% -p Nice=10 -p WorkingDirectory="$REL" \
   /bin/sh -c "'$T/cadquery-2.8.0/bin/python' -I -W ignore '$REL/native/surrogate_featurize.py' --dataset '$D' --output '$M/features.npz' && \

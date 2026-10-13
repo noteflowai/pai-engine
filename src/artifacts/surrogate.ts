@@ -101,7 +101,11 @@ type Reply = { ok: boolean; stdout?: string; error?: string };
 /** Resident prediction; undefined means "use the one-shot path" (no worker, or the worker failed). */
 async function residentPredict(ctx: RunContext, bytes: Buffer) {
   let pair: Pair;
-  try { pair = await pairFor(ctx); } catch { return undefined; }
+  try { pair = await pairFor(ctx); } catch (e) {
+    // Not silent: the one-shot path still answers, but the reason resident inference is unavailable goes to the log.
+    console.error(`surrogate workers unavailable for ${ctx.manifest.name}@${ctx.manifest.version}: ${e instanceof Error ? e.message.slice(0, 300) : e}`);
+    return undefined;
+  }
   const dir = join(pair.scratch, randomUUID());
   await mkdir(dir, { mode: 0o700 });
   try {
