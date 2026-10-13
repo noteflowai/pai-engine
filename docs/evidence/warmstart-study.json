@@ -1,0 +1,288 @@
+{
+ "schema": "pai-warmstart-study-1",
+ "site": "https://pai.oneai.host",
+ "checkedAt": "2026-10-13T04:52:59.989Z",
+ "budget": {
+  "initial": 8,
+  "rounds": 3,
+  "perRound": 3
+ },
+ "seeds": [
+  1,
+  2,
+  3
+ ],
+ "solver": "aws-batch",
+ "rule": "found = measured by CalculiX in that run; prior rows only train the GP",
+ "summary": {
+  "nema17-bracket": {
+   "pairs": 3,
+   "warmLighter": 3,
+   "equal": 0,
+   "coldLighter": 0,
+   "massDeltaG": [
+    -6.531,
+    -3.281,
+    -6.51
+   ],
+   "solvesToBest": {
+    "cold": [
+     10,
+     14,
+     1
+    ],
+    "warm": [
+     7,
+     5,
+     7
+    ]
+   },
+   "noFeasible": {
+    "cold": 0,
+    "warm": 0
+   }
+  },
+  "pillow-block": {
+   "pairs": 3,
+   "warmLighter": 3,
+   "equal": 0,
+   "coldLighter": 0,
+   "massDeltaG": [
+    -0.196,
+    -2.574,
+    -0.746
+   ],
+   "solvesToBest": {
+    "cold": [
+     12,
+     14,
+     16
+    ],
+    "warm": [
+     13,
+     5,
+     9
+    ]
+   },
+   "noFeasible": {
+    "cold": 0,
+    "warm": 0
+   }
+  }
+ },
+ "runs": [
+  {
+   "recordId": "6f3055c9-5aef-4bb4-9a14-5051a02b2bda",
+   "family": "nema17-bracket",
+   "seed": 1,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 11,
+   "feasible": 5,
+   "lightestFeasibleMassG": 47.541,
+   "solvesToBest": 10,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 0
+  },
+  {
+   "recordId": "a42c9d59-08bd-4998-8f31-6b65f313c338",
+   "family": "nema17-bracket",
+   "seed": 1,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 14,
+   "feasible": 9,
+   "lightestFeasibleMassG": 41.01,
+   "solvesToBest": 7,
+   "priorPoints": 300,
+   "priorSources": [
+    "surrogate-dataset",
+    "workspace-record"
+   ],
+   "lightestPriorMassG": 34.469,
+   "minutes": 0
+  },
+  {
+   "recordId": "b93c6af8-5d31-41d0-b54f-1946b4cf54cf",
+   "family": "nema17-bracket",
+   "seed": 2,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 16,
+   "feasible": 7,
+   "lightestFeasibleMassG": 44.598,
+   "solvesToBest": 14,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 0
+  },
+  {
+   "recordId": "40210771-9e90-4dbb-afdf-611a553ad166",
+   "family": "nema17-bracket",
+   "seed": 2,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 13,
+   "feasible": 9,
+   "lightestFeasibleMassG": 41.317,
+   "solvesToBest": 5,
+   "priorPoints": 300,
+   "priorSources": [
+    "surrogate-dataset",
+    "workspace-record"
+   ],
+   "lightestPriorMassG": 34.469,
+   "minutes": 0
+  },
+  {
+   "recordId": "1fd222b4-7d01-4ea0-8a1a-656e3db711f5",
+   "family": "nema17-bracket",
+   "seed": 3,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 8,
+   "feasible": 2,
+   "lightestFeasibleMassG": 48.368,
+   "solvesToBest": 1,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 0
+  },
+  {
+   "recordId": "470862f1-9b74-42d6-948c-85e49001fcd7",
+   "family": "nema17-bracket",
+   "seed": 3,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 14,
+   "feasible": 10,
+   "lightestFeasibleMassG": 41.858,
+   "solvesToBest": 7,
+   "priorPoints": 300,
+   "priorSources": [
+    "surrogate-dataset",
+    "workspace-record"
+   ],
+   "lightestPriorMassG": 34.469,
+   "minutes": 0
+  },
+  {
+   "recordId": "44b33524-7f28-4034-b5e2-42ac573bac64",
+   "family": "pillow-block",
+   "seed": 1,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 15,
+   "feasible": 10,
+   "lightestFeasibleMassG": 144.075,
+   "solvesToBest": 12,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 0
+  },
+  {
+   "recordId": "5785c9ec-5693-45f9-b4e7-576507b281f3",
+   "family": "pillow-block",
+   "seed": 1,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 15,
+   "feasible": 12,
+   "lightestFeasibleMassG": 143.879,
+   "solvesToBest": 13,
+   "priorPoints": 254,
+   "priorSources": [
+    "surrogate-dataset"
+   ],
+   "lightestPriorMassG": 117.724,
+   "minutes": 0
+  },
+  {
+   "recordId": "3e5309cc-9946-4050-b4f6-9fe33d35abc9",
+   "family": "pillow-block",
+   "seed": 2,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 16,
+   "feasible": 11,
+   "lightestFeasibleMassG": 145.348,
+   "solvesToBest": 14,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 0
+  },
+  {
+   "recordId": "9c78ba5e-bb9d-4e88-9d1b-459464cf6fb5",
+   "family": "pillow-block",
+   "seed": 2,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 15,
+   "feasible": 11,
+   "lightestFeasibleMassG": 142.774,
+   "solvesToBest": 5,
+   "priorPoints": 254,
+   "priorSources": [
+    "surrogate-dataset"
+   ],
+   "lightestPriorMassG": 117.724,
+   "minutes": 0
+  },
+  {
+   "recordId": "ac336a5f-9682-46fa-8daa-f588d67fcab5",
+   "family": "pillow-block",
+   "seed": 3,
+   "warm": false,
+   "state": "completed",
+   "error": null,
+   "solves": 17,
+   "feasible": 15,
+   "lightestFeasibleMassG": 144.438,
+   "solvesToBest": 16,
+   "priorPoints": 0,
+   "priorSources": [],
+   "lightestPriorMassG": null,
+   "minutes": 10.35
+  },
+  {
+   "recordId": "a017faa2-f44a-4962-a316-4d1eceba9a50",
+   "family": "pillow-block",
+   "seed": 3,
+   "warm": true,
+   "state": "completed",
+   "error": null,
+   "solves": 14,
+   "feasible": 13,
+   "lightestFeasibleMassG": 143.692,
+   "solvesToBest": 9,
+   "priorPoints": 254,
+   "priorSources": [
+    "surrogate-dataset"
+   ],
+   "lightestPriorMassG": 117.724,
+   "minutes": 13.35
+  }
+ ],
+ "caveats": [
+  "n = 3 seeds per family: a consistent direction, not a statistically powered comparison",
+  "bracket warm runs also used earlier optimisation records of this workspace (the existing warm-start source, at most 60 rows), including earlier runs of this study; pillow warm runs used only the surrogate dataset",
+  "lightestPriorMassG checks deflection, stress and mass only (prior rows carry no hole-edge, envelope or seat checks), so it is not a feasible design and is not compared",
+  "the first attempt of this study (before #81) is invalid: every geometry screen of a Batch optimisation failed on a tool path; its records are kept and archived"
+ ]
+}
