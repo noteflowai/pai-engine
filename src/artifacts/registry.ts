@@ -89,6 +89,22 @@ function transition(store: Store, a: ArtifactVersion, to: Lifecycle, actor: stri
 }
 
 /** Run one operation of an exact version in a private directory; checks the runtime pins and the data schemas first. */
+/**
+ * Readiness probes start an interpreter in an engine (seconds). A positive answer holds while this process runs with
+ * the same configuration (runtimes change only with a release, which restarts it), re-checked every 10 minutes;
+ * a negative answer is never cached. Acceptance (validation) always probes afresh.
+ */
+const READY_TTL_MS = 10 * 60_000;
+const readyCache = new Map<string, number>();
+async function runtimeReadyCached(adapter: ArtifactAdapter, config: Config, a: ArtifactVersion) {
+  const key = JSON.stringify([a.manifest.adapter, a.digest, config.engineContainer?.images ?? null, config.physicsPython, config.cadquery, config.logisticsPython]);
+  const at = readyCache.get(key);
+  if (at && Date.now() - at < READY_TTL_MS) return { ready: true };
+  const r = await adapter.runtimeReady(config, a.manifest);
+  if (r.ready) readyCache.set(key, Date.now()); else readyCache.delete(key);
+  return r;
+}
+
 export async function runOperation(store: Store, config: Config, a: ArtifactVersion, operation: string, inputs: Record<string, unknown>,
   params: Record<string, unknown>, directory: string): Promise<OperationResult> {
   const adapter = adapterOf(a.manifest.adapter);
@@ -100,7 +116,7 @@ export async function runOperation(store: Store, config: Config, a: ArtifactVers
   }
   const parsedParams = adapter.params[operation]?.safeParse(params ?? {});
   if (!parsedParams?.success) throw new DomainError("INVALID_PARAMS", `${operation}: ${parsedParams?.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`, 422);
-  const ready = await adapter.runtimeReady(config, a.manifest);
+  const ready = await runtimeReadyCached(adapter, config, a);
   if (!ready.ready) throw new DomainError("RUNTIME_NOT_READY", ready.reason ?? "runtime differs from the artifact's pins", 503);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const result = await adapter.run({ config, directory, files: artifactFiles(store, a), manifest: a.manifest }, operation, inputs, parsedParams.data as Record<string, unknown>);
