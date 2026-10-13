@@ -57,6 +57,7 @@ export function Artifacts() {
     <ViewHeader step="物理 AI 决策平台 · 决策算法与孪生" title="决策算法与物理 AI 孪生"
       description="场地准入、车辆路径等决策算法以不可变、自带验收基准的制品交付，在孪生里由传感器事件触发重排，每份方案都经独立核验器检查后才被采用；流程把算法、核验和人工确认串起来，按租户隔离运行并记录用量。示例全部是合成数据。" />
     <TwinHero />
+    <Throughput />
     <DecisionCatalog artifacts={artifacts} workflows={workflows} onRun={id => { setWorkflowId(id); document.getElementById("run-card")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
     <Card title="运行" aside={<small>不自动重试 · 原生用量与模型 Token 分开记录</small>} label="流程运行" id="run-card">
       {workflows.length === 0 ? <Empty title="先保存一个流程版本" /> : <>
@@ -170,6 +171,31 @@ function TwinHero() {
       <thead><tr><th scope="col">指标</th><th scope="col">先到先服务</th><th scope="col">PAI Engine · CP-SAT</th></tr></thead>
       <tbody>{rows.map(([k, a, b, better]) => <tr key={k}><th scope="row">{k}</th><td>{a}</td><td className={better ? "better" : undefined}>{b}</td></tr>)}</tbody></table></div>
     <small className="muted">CP-SAT 总等待更长（{c.waitingMin} vs {f.waitingMin} min），因为它多接了 {c.admitted - f.admitted} 辆车，而先到先服务直接拒绝了它们。仿真记录，不代表现场放行。</small>
+  </Card>;
+}
+
+type TP = { days: number; series: { day: string; solver: number; geometry: number; surrogate: number }[]; total: { solver: number; geometry: number; surrogate: number };
+  surrogate: { compared: number; medianRelError: { deflectionMm: number | null; stressMPa: number | null; mass: number | null }; allInsideInterval: number } };
+/** Design evaluations per day by engine kind, from stored records; the surrogate's error against the solve that followed it. */
+function Throughput() {
+  const [tp, setTp] = useState<TP>();
+  useEffect(() => { void api<TP>("/v1/throughput", undefined).then(setTp).catch(() => undefined); }, []);
+  if (!tp) return null;
+  const max = Math.max(1, ...tp.series.map(d => d.solver + d.geometry + d.surrogate));
+  const pct = (x: number | null) => x === null ? "—" : `${(x * 100).toFixed(1)} %`;
+  return <Card title="设计评估吞吐" label="设计评估吞吐" aside={<small>近 {tp.days} 天 · 由记录计数 · 代理模型预测之后都有 CalculiX 实测</small>}>
+    <div className="kpis">
+      <div><strong>{tp.total.solver}</strong><small>原生求解（CalculiX / OpenFOAM）</small></div>
+      <div><strong>{tp.total.geometry}</strong><small>几何检查（B-Rep）</small></div>
+      <div><strong>{tp.total.surrogate}</strong><small>代理模型预测</small></div>
+      <div><strong>{pct(tp.surrogate.medianRelError.deflectionMm)}</strong><small>预测挠度误差中位数（{tp.surrogate.compared} 次对比，{tp.surrogate.allInsideInterval} 次全在区间内）</small></div>
+    </div>
+    {tp.series.length > 0 && <div className="tp-bars" role="img" aria-label={`每日评估：${tp.series.map(d => `${d.day} 求解 ${d.solver}、几何 ${d.geometry}、代理 ${d.surrogate}`).join("；")}`}>
+      {tp.series.map(d => <div key={d.day} className="tp-day" title={`${d.day} · 求解 ${d.solver} · 几何 ${d.geometry} · 代理 ${d.surrogate}`}>
+        <span className="tp-stack" style={{ height: `${((d.solver + d.geometry + d.surrogate) / max) * 100}%` }}>
+          <i className="tp-solver" style={{ flexGrow: d.solver }} /><i className="tp-geometry" style={{ flexGrow: d.geometry }} /><i className="tp-surrogate" style={{ flexGrow: d.surrogate }} /></span>
+        <small>{d.day.slice(5)}</small></div>)}</div>}
+    <p className="tp-legend"><i className="tp-solver" />原生求解 <i className="tp-geometry" />几何检查 <i className="tp-surrogate" />代理模型预测</p>
   </Card>;
 }
 

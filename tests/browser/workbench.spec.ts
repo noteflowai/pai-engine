@@ -969,6 +969,7 @@ test("artifact platform: build, benchmark, release, configure a workflow, run wi
   const order = await page.locator("main .card").evaluateAll(cards => cards.map(c => c.getAttribute("aria-label")));
   expect(order.indexOf("场地孪生")).toBeLessThan(order.indexOf("制品库"));
   expect(order.indexOf("流程运行")).toBeLessThan(order.indexOf("制品库"));
+  await expect(page.getByRole("region", { name: "设计评估吞吐" })).toContainText("原生求解");
   await page.getByLabel("从可信源构建 logistics-pdptw 版本").fill(ref.split("@")[1]);
   await advance(page, ["构建草稿"]);
   const row = page.getByRole("list", { name: "制品版本" }).getByRole("listitem").filter({ hasText: ref });
