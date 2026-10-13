@@ -148,9 +148,25 @@
   "finding": "accuracy drops off the training manifold (deflection error about 9x the on-recipe median); the conformal interval still covered the measurement; the CalculiX verdict decided"
  },
  "latency": {
-  "warmEnsembleMs": "about 9-10 (benchmark median of 20 calls)",
-  "perReviewColdMs": "350-830 (one process per review: model load and first call)",
-  "featurizeAndProcess": "a few seconds in the engine containers",
-  "note": "the per-review figure, not the warm one, is what a CAD review costs today"
+  "measuredOn": "hosted g6.xlarge, release ff0237c, in the service's own environment (engine containers)",
+  "residentWarmMs": {
+   "featurize": 54,
+   "ensemble": 19,
+   "operationTotal": [
+    89,
+    96
+   ]
+  },
+  "firstCallAfterStartMs": 11068,
+  "oneShotBeforeMs": [
+   9052,
+   11945
+  ],
+  "path": "resident workers (native/engine_worker.py) run the artifact's own modules; byte-identical to the one-shot command (tested)",
+  "fixedOnTheWay": [
+   "#85 state directory owned by root: workers never started, silent fallback (now logged)",
+   "#86 readiness probe re-run on every operation (~2.8 s, now cached when positive)",
+   "#87 serving directory left by a previous process: EEXIST after restart"
+  ]
  }
 }
