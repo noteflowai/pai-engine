@@ -1,0 +1,109 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-pillow@1.0.0",
+ "digest": "8a008771baa14e3ad43bb21ee3954aaa39e4c1fdb947a274d10df5cb4af40e4f",
+ "state": "released",
+ "dataset": {
+  "id": "fea-pillow-v1",
+  "planned": 257,
+  "measured": 254,
+  "failed": 3,
+  "remeasuredAfterFix": "#71 (cylinders on trimmed surfaces)"
+ },
+ "model": {
+  "trainRows": 212,
+  "heldOutRows": 42,
+  "selection": {
+   "method": "5-fold CV on training rows, log-space RMSE (standardised)",
+   "cvEpochs": 100,
+   "cv": {
+    "pointnet": 0.7074183821678162,
+    "pointnet+globals": 0.5300685167312622
+   },
+   "chosen": "pointnet+globals"
+  }
+ },
+ "acceptance": {
+  "gate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "failed": [],
+  "metrics": {
+   "deflectionMm": {
+    "spearman": 0.9945,
+    "medianRelError": 0.012204116512757077,
+    "p90RelError": 0.04901135952107945,
+    "maxRelError": 0.08042334462315352
+   },
+   "stressMPa": {
+    "spearman": 0.9869,
+    "medianRelError": 0.018729889290057544,
+    "p90RelError": 0.04404729392046437,
+    "maxRelError": 0.06276952323872076
+   },
+   "mass": {
+    "spearman": 0.9998,
+    "medianRelError": 0.002092297138641111,
+    "p90RelError": 0.004188783820033569,
+    "maxRelError": 0.009666616364267543
+   }
+  },
+  "conformal90Coverage": {
+   "deflectionMm": 1,
+   "stressMPa": 1,
+   "mass": 1
+  },
+  "reproducesTrainingReport": true
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9985,
+   "medianRelError": 0.007029371164934102,
+   "p90RelError": 0.015001076678918382,
+   "maxRelError": 0.017591085071311022
+  },
+  "stressMPa": {
+   "spearman": 0.9932,
+   "medianRelError": 0.010774308939185084,
+   "p90RelError": 0.03754483646684576,
+   "maxRelError": 0.0500740279388306
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 4.929066309329377e-05,
+   "p90RelError": 0.00016255989128405952,
+   "maxRelError": 0.0002736313522605551
+  }
+ },
+ "liveCadReview": {
+  "part": "parametric W100 D18 base 9 pitch 70",
+  "deflectionMm": [
+   0.0043,
+   0.0043
+  ],
+  "stressMPa": [
+   14.2,
+   14.1
+  ],
+  "massG": [
+   165.15,
+   165.19
+  ],
+  "inInterval": true
+ },
+ "authority": "suggestion",
+ "physicalValidation": false
+}
