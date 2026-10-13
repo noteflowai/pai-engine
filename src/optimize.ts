@@ -10,7 +10,9 @@ import { canonical, DomainError, sha256 } from "./domain.js";
 import type { Store } from "./store.js";
 import type { LiveBus } from "./live.js";
 import { solverDataset } from "./dataset.js";
-import { CAD_FAMILIES, CadParameters, CadRequirements, PillowParameters, structuralFits, type CadRequirements as CadReq } from "./cad.js";
+import { CAD_FAMILIES, CadParameters, CadRequirements, PillowParameters, structuralFits, type CadFamily, type CadRequirements as CadReq, type StructuralRequirements } from "./cad.js";
+import { releasedSurrogate } from "./surrogate-lane.js";
+import { artifactFiles } from "./artifacts/registry.js";
 
 /**
  * Physics-aware design optimisation (native/cad_optimize.py):
@@ -38,6 +40,23 @@ export const OptimizeBudget = z.object({
 }).strict().refine(b => b.initial + b.rounds * b.perRound <= MAX_OPTIMIZE_EVALUATIONS, { message: `at most ${MAX_OPTIMIZE_EVALUATIONS} solver evaluations` });
 export const DEFAULT_OPTIMIZE_BUDGET = { initial: 8, rounds: 3, perRound: 3 };
 /** A design an AI planner proposes as a starting point, with its own first-principles estimate (scored later). */
+type PriorPoint = { parameters: Record<string, number>; deflectionMm: number; stressMPa: number; mass: number; minWallMm?: number; holeEdgeMm?: number; boreDistortionMm?: number; source: string };
+
+/** Measured rows of the released surrogate's dataset under exactly this load case, as warm-start points (searched axes only). */
+export function surrogateDatasetPrior(store: Store, family: CadFamily, s: StructuralRequirements): PriorPoint[] {
+  const a = releasedSurrogate(store, family);
+  if (!a) return [];
+  const files = artifactFiles(store, a);
+  const spec = JSON.parse(files["dataset-spec.json"].toString()) as { structural: StructuralRequirements };
+  const load = (x: StructuralRequirements) => JSON.stringify([x.forceN, x.leverMm, x.direction ?? null]);
+  if (load(spec.structural) !== load(s)) return [];
+  const axes = family === "pillow-block" ? ["width", "depth", "baseThickness", "boltPitch"] : ["thickness", "width", "plateHeight"];
+  return files["dataset-rows.jsonl"].toString().split("\n").filter(Boolean).map(l => JSON.parse(l))
+    .filter(r => r.status === "measured" && r.deflectionMm > 0 && r.stressMPa > 0 && r.mass > 0 && (family !== "pillow-block" || r.boreDistortionMm > 0))
+    .map(r => ({ parameters: Object.fromEntries(axes.map(k => [k, r.parameters[k]])), deflectionMm: r.deflectionMm, stressMPa: r.stressMPa, mass: r.mass,
+      ...(family === "pillow-block" ? { boreDistortionMm: r.boreDistortionMm } : {}), source: a.id }));
+}
+
 /** Searched axes of the pillow block (native/cad_optimize.py FAMILIES); the rest of the recipe is fixed. */
 export const PILLOW_OPT_BOUNDS = { width: [80, 120], depth: [14, 24], baseThickness: [6, 14], boltPitch: [54, 76] } as const;
 const PillowAxes = z.object(Object.fromEntries(Object.entries(PILLOW_OPT_BOUNDS).map(([k, [lo, hi]]) => [k, z.number().min(lo).max(hi)])) as Record<keyof typeof PILLOW_OPT_BOUNDS, z.ZodNumber>).strict();
@@ -58,6 +77,8 @@ export const OptimizeRequest = z.object({
   solver: z.enum(["local", "batch"]).optional(),
   /** Reuse earlier solver measurements of the same recipe and load to train the surrogate (ranking only). */
   warmStart: z.boolean().default(true),
+  /** Seed of the space-filling design and the GP restarts (repeatable runs; paired studies vary it). */
+  seed: z.number().int().min(0).max(1_000_000).default(7),
   /** Part family; the pillow block uses its own axes and bearing load case (gp-nsga2, on this host). */
   family: z.enum(CAD_FAMILIES).default("nema17-bracket"),
 }).strict().superRefine((r, ctx) => {
@@ -124,14 +145,22 @@ export async function optimizeCad(store: Store, config: Config, project: Project
     const before = await digests();
     // Warm start from the solver dataset: same recipe (pilot bore 22.5 mm), same load and lever, fine-mesh FEA.
     const s = request.requirements.structural!;
-    // The solver dataset holds bracket measurements only; the pillow block starts cold.
+    // The workspace solver dataset holds bracket measurements only; the pillow block gets its rows from its surrogate's dataset.
     const rows = request.warmStart && !pillow ? solverDataset(store).data.filter(r => r.domain === "structural-fea" && r.inputs.forceN === s.forceN && r.inputs.leverMm === s.leverMm
       && r.inputs.pilotBore === 22.5 && Number.isFinite(r.outputs.stressMPa) && r.outputs.deflectionMm > 0) : [];
     const seen = new Set<string>();
     const prior = rows.filter(r => { const k = `${r.inputs.thickness}:${r.inputs.width}:${r.inputs.plateHeight}`; return !seen.has(k) && (seen.add(k), true); })
-      .slice(-60).map(r => ({ parameters: { thickness: r.inputs.thickness, width: r.inputs.width, plateHeight: r.inputs.plateHeight },
+      .slice(-60).map((r): PriorPoint => ({ parameters: { thickness: r.inputs.thickness, width: r.inputs.width, plateHeight: r.inputs.plateHeight },
         deflectionMm: r.outputs.deflectionMm, stressMPa: r.outputs.stressMPa, mass: r.outputs.massG,
         ...(Number.isFinite(r.outputs.minWallMm) && Number.isFinite(r.outputs.holeEdgeMm) ? { minWallMm: r.outputs.minWallMm, holeEdgeMm: r.outputs.holeEdgeMm } : {}), source: r.recordId }));
+    // Second source: the CalculiX rows shipped with the family's released structural surrogate (same load case only).
+    // They are solver measurements with receipts, so they train the in-loop GP directly, which on recipe parameters is
+    // more accurate than the geometry surrogate itself; nothing from them is recommended or re-measured by this run.
+    if (request.warmStart) {
+      const keys = new Set(prior.map(p => JSON.stringify(p.parameters)));
+      for (const q of surrogateDatasetPrior(store, request.family, s)) if (!keys.has(JSON.stringify(q.parameters))) { prior.push(q); keys.add(JSON.stringify(q.parameters)); }
+    }
+    prior.splice(0, Math.max(0, prior.length - 300));
     record.warmStart = { points: prior.length, sources: [...new Set(prior.map(p => p.source))] };
     const solver = request.solver ?? (config.solverBatch ? "batch" : "local");
     if (solver === "batch" && !config.solverBatch) throw new DomainError("SOLVER_NOT_CONFIGURED", "AWS Batch solver is not configured (PAI_SOLVER_QUEUE, PAI_SOLVER_JOB_DEFINITION, PAI_SOLVER_BUCKET)", 503);
@@ -144,7 +173,7 @@ export async function optimizeCad(store: Store, config: Config, project: Project
       "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "cadquery-lock": sha256(await readFile(native("cadquery-requirements.txt"))),
       ccx: await toolDigest(config, "physics", config.ccx, async () => sha256(await readFile(config.ccx!))) };
     const inputFile = join(directory, "input.json");
-    await writePrivate(inputFile, JSON.stringify({ family: request.family, cadquery: enginePath(config, "physics", config.cadquery), ccx: enginePath(config, "physics", config.ccx), requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
+    await writePrivate(inputFile, JSON.stringify({ family: request.family, seed: request.seed, cadquery: enginePath(config, "physics", config.cadquery), ccx: enginePath(config, "physics", config.ccx), requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
       ...(solver === "batch" ? { backend: "batch", batch: { ...config.solverBatch!, run: record.id, timeoutSeconds: 1800 } } : {}) }));
     const total = request.budget.initial + 1 + request.budget.rounds * request.budget.perRound;
     publish({ kind: "step", id: "optimize", label: `物理寻优：约 ${total} 次 CalculiX 求解 + 代理模型排序`, status: "running" });
