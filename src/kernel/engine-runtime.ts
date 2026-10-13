@@ -70,13 +70,15 @@ export function imageProgram(c: EngineContainerConfig, program: string): string 
  * The path an engine sees for a host tool it is handed inside its input (e.g. CalculiX or the CadQuery interpreter
  * named in an optimisation spec): the image path when that engine runs in a container, otherwise the host path.
  */
-export function enginePath(host: EngineHost, engine: Engine, hostPath: string): string {
-  return backendFor(host, { engine, program: hostPath, args: [], cwd: "/", mounts: { write: [] }, timeoutMs: 0 }) === "container"
+/** The properties of a call that decide its backend; enginePath/toolDigest must be given the same ones as the call. */
+export type BackendTraits = Pick<EngineCall, "network" | "untrusted">;
+export function enginePath(host: EngineHost, engine: Engine, hostPath: string, traits: BackendTraits = {}): string {
+  return backendFor(host, { engine, program: hostPath, args: [], cwd: "/", mounts: { write: [] }, timeoutMs: 0, ...traits }) === "container"
     ? imageProgram(host.engineContainer!, hostPath) : hostPath;
 }
 /** What a receipt pins for a tool: the file digest on the process backend, the image digest in a container. */
-export async function toolDigest(host: EngineHost, engine: Engine, hostPath: string, fileDigest: () => Promise<string>): Promise<string> {
-  return enginePath(host, engine, hostPath) === hostPath ? fileDigest() : `image:${host.engineContainer!.images[engine].split("@").at(-1)}`;
+export async function toolDigest(host: EngineHost, engine: Engine, hostPath: string, fileDigest: () => Promise<string>, traits: BackendTraits = {}): Promise<string> {
+  return enginePath(host, engine, hostPath, traits) === hostPath ? fileDigest() : `image:${host.engineContainer!.images[engine].split("@").at(-1)}`;
 }
 
 /** CLI arguments of one hardened, single-use engine container (pure; tested). */

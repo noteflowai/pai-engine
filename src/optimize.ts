@@ -165,15 +165,17 @@ export async function optimizeCad(store: Store, config: Config, project: Project
     const solver = request.solver ?? (config.solverBatch ? "batch" : "local");
     if (solver === "batch" && !config.solverBatch) throw new DomainError("SOLVER_NOT_CONFIGURED", "AWS Batch solver is not configured (PAI_SOLVER_QUEUE, PAI_SOLVER_JOB_DEFINITION, PAI_SOLVER_BUCKET)", 503);
     record.solver = solver;
+    // The optimiser on Batch is an AWS client (process backend): tool paths and digests must follow the same backend.
+    const traits = { network: solver === "batch" ? "aws" as const : "none" as const };
     if (request.strategy === "botorch-qlognehvi" && !(await botorchVersion(config))) {
       throw new DomainError("BOTORCH_NOT_CONFIGURED", "BoTorch is not installed in the physics toolchain (npm run setup:physics -- --with-botorch)", 503);
     }
     record.sourceDigests = { ...before, ...(solver === "batch" ? { "solver-job.py": sha256(await readFile(native("solver_job.py"))), "solver-lock": sha256(await readFile(native("solver-requirements.txt"))) } : {}),
       ...(request.strategy === "botorch-qlognehvi" ? { "botorch-lock": sha256(await readFile(native("bo-requirements.txt"))) } : {}),
       "physics-lock": sha256(await readFile(native("physics-requirements.txt"))), "cadquery-lock": sha256(await readFile(native("cadquery-requirements.txt"))),
-      ccx: await toolDigest(config, "physics", config.ccx, async () => sha256(await readFile(config.ccx!))) };
+      ccx: await toolDigest(config, "physics", config.ccx, async () => sha256(await readFile(config.ccx!)), traits) };
     const inputFile = join(directory, "input.json");
-    await writePrivate(inputFile, JSON.stringify({ family: request.family, seed: request.seed, cadquery: enginePath(config, "physics", config.cadquery), ccx: enginePath(config, "physics", config.ccx), requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
+    await writePrivate(inputFile, JSON.stringify({ family: request.family, seed: request.seed, cadquery: enginePath(config, "physics", config.cadquery, traits), ccx: enginePath(config, "physics", config.ccx, traits), requirements: request.requirements, budget: request.budget, seeds: request.seeds, strategy: request.strategy, parallel: 2, prior,
       ...(solver === "batch" ? { backend: "batch", batch: { ...config.solverBatch!, run: record.id, timeoutSeconds: 1800 } } : {}) }));
     const total = request.budget.initial + 1 + request.budget.rounds * request.budget.perRound;
     publish({ kind: "step", id: "optimize", label: `物理寻优：约 ${total} 次 CalculiX 求解 + 代理模型排序`, status: "running" });
@@ -190,7 +192,7 @@ export async function optimizeCad(store: Store, config: Config, project: Project
     };
     const args = ["-I", native("cad_optimize.py"), "--input", inputFile, "--output", directory];
     const r = await runEngine(config, { engine: "physics", program: config.physicsPython, args, cwd: config.repository, mounts: { read: [inputFile], write: [directory] },
-      timeoutMs: Math.max(600_000, total * 120_000), onLine: observe, network: solver === "batch" ? "aws" : "none" });
+      timeoutMs: Math.max(600_000, total * 120_000), onLine: observe, ...traits });
     await writePrivate(join(directory, "stdout.log"), r.stdout); await writePrivate(join(directory, "stderr.log"), r.stderr);
     record.receipts.push({ adapter: "cad-optimize", command: ["python", "cad_optimize.py"], startedAt: r.startedAt, finishedAt: r.finishedAt,
       exitCode: r.exitCode, runtime: r.runtime, stdoutSha256: sha256(r.stdout), sourceDigests: before });
