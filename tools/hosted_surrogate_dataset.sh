@@ -20,7 +20,7 @@ if [ "$ACTION" = status ]; then
 fi
 [ -f "$REL/native/surrogate-datasets/$DATASET.json" ] || { echo "no spec $DATASET in the release" >&2; exit 2; }
 if systemctl is-active --quiet "$UNIT"; then echo "$UNIT is already running"; exit 0; fi
-install -d -o pai -g pai -m 0700 "$OUT"
+install -d -o pai -g pai -m 0700 /var/lib/pai/data/state/surrogate /var/lib/pai/data/state/surrogate/datasets "$OUT"
 systemctl reset-failed "$UNIT" 2>/dev/null || true
 systemd-run --unit "$UNIT" --description "PAI surrogate dataset $DATASET" -p User=pai -p Group=pai -p NoNewPrivileges=true -p ProtectSystem=strict \
   -p ProtectHome=true -p PrivateTmp=true -p ReadWritePaths=/var/lib/pai/data -p EnvironmentFile=/etc/pai/runtime.env -p WorkingDirectory="$REL" \
