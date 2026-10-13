@@ -77,3 +77,23 @@ test("tool paths and digests follow the backend of the call they are handed to",
   assert.equal(await toolDigest(host, "physics", cq, async () => "file", { network: "aws" }), "file");
   assert.equal(await toolDigest(host, "physics", cq, async () => "file"), "image:sha256:" + "b".repeat(64));
 });
+
+test("resident worker: one request at a time, deadline ends the worker, interactive container args", async () => {
+  const { startWorker, containerArgs, closeAllWorkers } = await import("../src/kernel/engine-runtime.js");
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = await mkdtemp(join(tmpdir(), "pai-worker-"));
+  const script = join(dir, "w.py");
+  await writeFile(script, 'import json,sys,time\nprint(json.dumps({"ready":1}),flush=True)\nfor l in sys.stdin:\n r=json.loads(l)\n time.sleep(r.get("sleep",0))\n print(json.dumps({"id":r["id"],"echo":r.get("x")}),flush=True)\n');
+  try {
+    const w = await startWorker({ repository: repo }, { engine: "physics", program: "python3", args: ["-I", script], cwd: dir, mounts: { read: [dir], write: [] } });
+    const answers = await Promise.all([1, 2, 3].map(x => w.request<{ echo: number }>({ x }, 5000)));
+    assert.deepEqual(answers.map(a => a.echo), [1, 2, 3], "serialised, each answer to its own request");
+    await assert.rejects(w.request({ x: 4, sleep: 3 }, 200), /deadline/);
+    assert.equal(w.alive(), false, "a missed deadline ends the worker");
+    await assert.rejects(w.request({ x: 5 }, 1000), /not running/);
+    const a = containerArgs({ ...ct, gpu: false }, call({ engine: "logistics", program: "python3" }), repo, "n", true);
+    assert.deepEqual(a.slice(a.indexOf("run"), a.indexOf("run") + 3), ["run", "-i", "--rm"]);
+  } finally { closeAllWorkers(); await rm(dir, { recursive: true, force: true }); }
+});

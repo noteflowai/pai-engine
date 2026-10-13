@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -82,7 +83,7 @@ export async function toolDigest(host: EngineHost, engine: Engine, hostPath: str
 }
 
 /** CLI arguments of one hardened, single-use engine container (pure; tested). */
-export function containerArgs(c: EngineContainerConfig, call: EngineCall, repository: string, name: string): string[] {
+export function containerArgs(c: EngineContainerConfig, call: EngineCall, repository: string, name: string, interactive = false): string[] {
   const image = c.images[call.engine];
   const global = c.cli === "podman" && c.storageRoot
     ? ["--root", join(c.storageRoot, "storage"), "--runroot", join(c.storageRoot, "run"), "--storage-driver", "overlay",
@@ -99,7 +100,7 @@ export function containerArgs(c: EngineContainerConfig, call: EngineCall, reposi
   // The NVIDIA CDI hooks create driver-library symlinks and the loader cache inside the container, so a GPU container
   // keeps a writable root; it is still single-use (--rm), unprivileged and without network, and the host is unchanged.
   const root = gpu.length ? [] : ["--read-only"];
-  return [...global, "run", "--rm", "--name", name, "--network", "none", ...root, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+  return [...global, "run", ...(interactive ? ["-i"] : []), "--rm", "--name", name, "--network", "none", ...root, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
     "--tmpfs", "/tmp:rw,nosuid,nodev,size=2g", ...user, ...gpu, ...(gpu.length ? ["-e", "PAI_GPU=1"] : []),
     "-e", "PYTHONDONTWRITEBYTECODE=1", "-e", "PYTHONUNBUFFERED=1", "-e", "HOME=/tmp",
     ...volumes, "-w", workdir, "--entrypoint", imageProgram(c, call.program), image, ...call.args];
@@ -132,4 +133,79 @@ export async function runEngine(host: EngineHost, call: EngineCall): Promise<Eng
       "/", undefined, 30_000, undefined, env).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * A resident engine process (e.g. an artifact's model kept loaded): the same backend, image, hardening and declared
+ * footprint as runEngine, but stdin/stdout stay open for newline-delimited JSON requests, one at a time, each with its
+ * own deadline. A missed deadline or a broken line ends the worker (it is never reused in an unknown state); the caller
+ * decides whether to fall back to a one-shot run. Workers end on close(), on idle (see the pool) and when the app stops.
+ */
+export interface EngineWorker {
+  readonly runtime: EngineRuntime;
+  alive(): boolean;
+  request<T>(message: Record<string, unknown>, timeoutMs: number): Promise<T>;
+  close(): void;
+}
+const WORKERS = new Set<EngineWorker>();
+/** Ends every resident worker (app shutdown). */
+export function closeAllWorkers() { for (const w of [...WORKERS]) w.close(); }
+
+export async function startWorker(host: EngineHost, call: Omit<EngineCall, "timeoutMs" | "onLine">, readyMs = 120_000): Promise<EngineWorker> {
+  const full = { ...call, timeoutMs: 0 } as EngineCall;
+  const missing = undeclaredPaths(full, host.repository);
+  if (missing.length && process.env.PAI_ENGINE_STRICT !== "0") throw new DomainError("ENGINE_FOOTPRINT", `${call.engine}: undeclared paths ${missing.join(", ")}`, 500);
+  const contained = backendFor(host, full) === "container";
+  const c = host.engineContainer, name = `pai-${call.engine}-worker-${randomUUID()}`;
+  if (contained) for (const w of call.mounts.write) await mkdir(w, { recursive: true, mode: 0o700 });
+  const [program, args, env] = contained ? [c!.cli, containerArgs(c!, full, host.repository, name, true), containerEnv(c!)] : [call.program, call.args, {}];
+  const child: ChildProcess = spawn(program, args, { cwd: call.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32",
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1", PYTHONUNBUFFERED: "1", ...env } });
+  const runtime: EngineRuntime = contained ? { backend: "container", engine: call.engine, image: c!.images[call.engine], device: call.gpu === "preferred" && c!.gpu ? "gpu" : "cpu" }
+    : { backend: "process", engine: call.engine, device: "cpu" };
+  let open = true, pending = "", stderr = "", waiter: ((line: string | Error) => void) | undefined, chain: Promise<unknown> = Promise.resolve();
+  const lines: string[] = [];
+  const deliver = (x: string | Error) => { const w = waiter; waiter = undefined; if (w) w(x); else if (typeof x === "string") lines.push(x); };
+  child.stdout!.on("data", chunk => {
+    pending += chunk.toString();
+    if (pending.length > 4_000_000) { worker.close(); return; }
+    let i; while ((i = pending.indexOf("\n")) >= 0) { const l = pending.slice(0, i); pending = pending.slice(i + 1); if (l.trim()) deliver(l); }
+  });
+  child.stderr!.on("data", chunk => { if (stderr.length < 20_000) stderr += chunk.toString(); });
+  child.on("close", () => { open = false; WORKERS.delete(worker); deliver(new Error(`worker exited: ${stderr.trim().split("\n").at(-1)?.slice(0, 200) ?? ""}`)); });
+  child.on("error", e => { open = false; deliver(e); });
+  const next = (ms: number) => new Promise<string>((ok, bad) => {
+    if (lines.length) return ok(lines.shift()!);
+    if (!open) return bad(new Error("worker is not running"));
+    const t = setTimeout(() => { waiter = undefined; worker.close(); bad(new DomainError("ENGINE_WORKER_TIMEOUT", `${call.engine} worker missed its deadline`, 504)); }, ms);
+    waiter = x => { clearTimeout(t); x instanceof Error ? bad(x) : ok(x); };
+  });
+  const worker: EngineWorker = {
+    runtime,
+    alive: () => open,
+    request<T>(message: Record<string, unknown>, timeoutMs: number) {
+      const id = randomUUID();
+      const run = chain.then(async () => {
+        if (!open) throw new Error("worker is not running");
+        child.stdin!.write(JSON.stringify({ ...message, id }) + "\n");
+        const reply = JSON.parse(await next(timeoutMs)) as { id: string } & T;
+        if (reply.id !== id) { worker.close(); throw new Error("worker answered another request"); }
+        return reply as T;
+      });
+      chain = run.catch(() => undefined);
+      return run;
+    },
+    close() {
+      if (!open && !child.pid) return;
+      open = false; WORKERS.delete(worker);
+      try { child.stdin!.end(); } catch { /* already closed */ }
+      try { if (child.pid) process.kill(process.platform === "win32" ? child.pid : -child.pid, "SIGKILL"); } catch { /* exited */ }
+      // Killing the CLI does not stop a container: remove it by name.
+      if (contained) spawn(c!.cli, [...containerArgs(c!, full, host.repository, name).slice(0, containerArgs(c!, full, host.repository, name).indexOf("run")), "rm", "-f", name],
+        { stdio: "ignore", env: { ...process.env, ...env } }).on("error", () => undefined);
+    },
+  };
+  WORKERS.add(worker);
+  try { JSON.parse(await next(readyMs)); } catch (e) { worker.close(); throw e; }
+  return worker;
 }
