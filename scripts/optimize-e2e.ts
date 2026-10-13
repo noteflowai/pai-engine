@@ -36,6 +36,9 @@ try {
       rationale: "Ribs closer to the bores; W/2 − 20 ≥ 8.25 and H − 39.5 ≥ 5.1 keep the edge rules" }] });
   assert.equal(run.state, "completed", run.error ?? "optimisation failed");
   const r = run.result!;
+  // A missing tool is a configuration fault, never a measured outcome (it once failed every geometry screen silently).
+  const toolFaults = r.points.filter(p => /FileNotFoundError|No such file or directory/.test((p as { error?: string }).error ?? ""));
+  assert.deepEqual(toolFaults.map(p => p.index), [], "no point may fail because a tool is missing");
   assert.equal(r.points[0].origin, "reference"); assert.equal(r.points[0].feasible, true, "reference bracket is feasible");
   assert.ok(r.points.some(p => p.origin === "ai-seed" && p.fidelity === "fea"));
   assert.equal(r.aiSeeds.length, 1); assert.ok(r.aiSeeds[0].relativeError !== null);

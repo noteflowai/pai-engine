@@ -65,3 +65,15 @@ test("container arguments: hardened single-use container, footprint mounted at t
   const d = containerArgs({ ...ct, cli: "docker", storageRoot: undefined }, call({ engine: "logistics", program: "python3", gpu: "preferred" }), repo, "n");
   assert.ok(d.includes("--gpus") && !d.includes("--root") && !d.includes("--cgroups"));
 });
+
+// Regression (2026-10-13): the Batch optimiser runs on the process backend (an AWS client), but the CadQuery path in its
+// input was mapped as if it ran in the physics container, so every geometry screen failed with FileNotFoundError.
+test("tool paths and digests follow the backend of the call they are handed to", async () => {
+  const { enginePath, toolDigest } = await import("../src/kernel/engine-runtime.js");
+  const host = { repository: repo, engineContainer: { ...ct, engines: ["physics"], images: { physics: "r.example/pai-engines@sha256:" + "b".repeat(64) } } };
+  const cq = "/var/lib/pai/data/state/tools/cadquery-2.8.0/bin/python";
+  assert.equal(enginePath(host, "physics", cq), "/opt/pai/tools/cadquery-2.8.0/bin/python", "in the container");
+  assert.equal(enginePath(host, "physics", cq, { network: "aws" }), cq, "AWS client on the host");
+  assert.equal(await toolDigest(host, "physics", cq, async () => "file", { network: "aws" }), "file");
+  assert.equal(await toolDigest(host, "physics", cq, async () => "file"), "image:sha256:" + "b".repeat(64));
+});
