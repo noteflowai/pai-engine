@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { configuration } from "../src/config.js";
 import { Store } from "../src/store.js";
 import { createArtifact, getArtifact, runOperation, validateArtifact } from "../src/artifacts/registry.js";
-import { surrogateGate, SURROGATE_GATE } from "../src/artifacts/surrogate.js";
+import { resetSurrogateWorkers, surrogateGate, SURROGATE_GATE } from "../src/artifacts/surrogate.js";
 import { closeAllWorkers } from "../src/kernel/engine-runtime.js";
 
 const PY = process.env.PAI_PHYSICS_PYTHON, CQ = process.env.PAI_CADQUERY_PYTHON;
@@ -51,6 +51,10 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     const again = await runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "nema17-bracket", stepBase64: step.toString("base64") } }, {}, dir);
     assert.deepEqual({ ...again.outputs.prediction as object, ms: 0 }, { ...p, ms: 0 }, "same prediction from the warm workers");
     assert.ok(again.receipts[0].seconds < 2, `warm featurize ${again.receipts[0].seconds} s`);
+    // A restart finds the previous serving directory and starts fresh workers (it once failed with EEXIST, silently).
+    resetSurrogateWorkers(); await new Promise(r => setTimeout(r, 300));
+    const restarted = await runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "nema17-bracket", stepBase64: step.toString("base64") } }, {}, dir);
+    assert.ok(restarted.receipts.every(x => x.command[0] === "worker"), "workers again after a restart");
     const code = join(state, "oneshot"); await mkdir(code);
     const files = getArtifact(store, a.id).files; const { artifactFiles } = await import("../src/artifacts/registry.js");
     for (const [n, b] of Object.entries(artifactFiles(store, getArtifact(store, a.id)))) await writeFile(join(code, n), b);
