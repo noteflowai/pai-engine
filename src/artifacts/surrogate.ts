@@ -78,6 +78,8 @@ async function pairFor(ctx: RunContext): Promise<Pair> {
   if (have) { const p = await have.catch(() => undefined); if (p && p.feat.alive() && p.pred.alive()) return touch(key, p); pool.delete(key); p?.feat.close(); p?.pred.close(); }
   const made = (async () => {
     const base = join(ctx.config.state, "surrogate", "serve", key.slice(0, 16));
+    // Fresh on every start: a directory left by an earlier process (restart, release) is never trusted or reused.
+    await rm(base, { recursive: true, force: true });
     const code = await materialise({ ...ctx, directory: base }), scratch = join(base, "requests");
     await mkdir(scratch, { recursive: true, mode: 0o700 });
     const worker = join(ctx.config.repository, "native", "engine_worker.py");
@@ -96,6 +98,10 @@ function touch(key: string, p: Pair) {
   p.timer = setTimeout(() => { p.feat.close(); p.pred.close(); pool.delete(key); }, IDLE_MS);
   p.timer.unref();
   return p;
+}
+/** Ends the resident workers and forgets them, as a process restart would (tests, release switch). */
+export function resetSurrogateWorkers() {
+  for (const [key, made] of pool) { pool.delete(key); void made.then(p => { if (p.timer) clearTimeout(p.timer); p.feat.close(); p.pred.close(); }, () => undefined); }
 }
 type Reply = { ok: boolean; stdout?: string; error?: string };
 /** Resident prediction; undefined means "use the one-shot path" (no worker, or the worker failed). */
