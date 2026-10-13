@@ -8,6 +8,7 @@ import { configuration } from "../src/config.js";
 import { Store } from "../src/store.js";
 import { createArtifact, getArtifact, runOperation, validateArtifact } from "../src/artifacts/registry.js";
 import { surrogateGate, SURROGATE_GATE } from "../src/artifacts/surrogate.js";
+import { closeAllWorkers } from "../src/kernel/engine-runtime.js";
 
 const PY = process.env.PAI_PHYSICS_PYTHON, CQ = process.env.PAI_CADQUERY_PYTHON;
 
@@ -45,11 +46,22 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     const r = await runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "nema17-bracket", stepBase64: step.toString("base64") } }, {}, dir);
     assert.equal(r.state, "ok", r.error ?? ""); const p = r.outputs.prediction as { authority: string; inDomain: boolean; interval90: { deflectionMm: number[] } };
     assert.equal(p.authority, "suggestion"); assert.equal(p.inDomain, true); assert.equal(p.interval90.deflectionMm.length, 2);
+    // Resident workers: the first call starts them, later calls reuse them; every answer equals the one-shot command's.
+    assert.ok(r.receipts.every(x => x.command[0] === "worker"), "served by the resident workers");
+    const again = await runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "nema17-bracket", stepBase64: step.toString("base64") } }, {}, dir);
+    assert.deepEqual({ ...again.outputs.prediction as object, ms: 0 }, { ...p, ms: 0 }, "same prediction from the warm workers");
+    assert.ok(again.receipts[0].seconds < 2, `warm featurize ${again.receipts[0].seconds} s`);
+    const code = join(state, "oneshot"); await mkdir(code);
+    const files = getArtifact(store, a.id).files; const { artifactFiles } = await import("../src/artifacts/registry.js");
+    for (const [n, b] of Object.entries(artifactFiles(store, getArtifact(store, a.id)))) await writeFile(join(code, n), b);
+    run(CQ!, [join(code, "surrogate_featurize.py"), "--step", join(data, "points", "0000", "part.step"), "--output", join(code, "one.npz")]);
+    const oneShot = JSON.parse(run(PY!, [join(code, "surrogate_train.py"), "predict", "--weights", join(code, "weights.pt"), "--features", join(code, "one.npz"), "--domain", join(code, "domain.json")]));
+    assert.deepEqual({ ...oneShot, ms: 0 }, { ...p, ms: 0 }, "resident = one-shot, byte for byte"); void files;
     await assert.rejects(runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "pillow-block", stepBase64: step.toString("base64") } }, {}, dir), /This surrogate is for nema17-bracket/);
     // Tampered weights break the chain: no new version can be built from them.
     const w = await readFile(join(model, "weights.pt")); w[w.length - 10] ^= 0xff; await writeFile(join(model, "weights.pt"), w);
     await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.1" }, "t"), /weights differ from the training report/);
-  } finally { store.close(); await rm(state, { recursive: true, force: true }); }
+  } finally { closeAllWorkers(); store.close(); await rm(state, { recursive: true, force: true }); }
 });
 
 test("in the CAD lane the surrogate is compared with the measurement and never decides", async () => {

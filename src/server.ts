@@ -49,6 +49,7 @@ import { KIND_STORE, admission, createRelease, decideRelease, supersedeForRevisi
 import { acquireRuntime } from "./runtime-lock.js";
 import { authentication } from "./auth.js";
 import { archiveTask } from "./project-archive.js";
+import { closeAllWorkers } from "./kernel/engine-runtime.js";
 import { cognitoDirectory, sessionRole, tenantSessionAllows, type Directory, type SessionRole } from "./members.js";
 import { artifactRoutes } from "./artifacts/routes.js";
 import { ontologyRoutes } from "./ontology/routes.js";
@@ -98,7 +99,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
   });
   const activeJobs = new Set<Promise<unknown>>();
   app.addHook("preClose", async () => { for (const end of [...streams]) end(); await Promise.allSettled([...activeJobs]); });
-  app.addHook("onClose", async () => { store.close(); await release(); });
+  app.addHook("onClose", async () => { closeAllWorkers(); store.close(); await release(); });
   app.addHook("onRequest", async (request, reply) => {
     const healthCheck = request.method === "GET" && request.url === "/healthz";
     const allowedHosts = new Set([`127.0.0.1:${config.port}`, `localhost:${config.port}`]);

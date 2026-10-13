@@ -16,7 +16,9 @@ import { z } from "zod";
 import { writePrivate } from "../adapters.js";
 import type { Config } from "../config.js";
 import { DomainError, sha256 } from "../domain.js";
-import { runEngine, type Engine } from "../kernel/engine-runtime.js";
+import { runEngine, startWorker, type Engine, type EngineWorker } from "../kernel/engine-runtime.js";
+import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type { ArtifactAdapter, ArtifactManifest, OperationResult, RunContext } from "./contract.js";
 import { lockVersions, materialise, sourceCommit } from "./native-artifact.js";
 
@@ -60,6 +62,66 @@ async function step(ctx: RunContext, engine: Engine, program: string, args: stri
     exitCode: r.exitCode, stdoutSha256: sha256(r.stdout + r.stderr), seconds: (Date.now() - t0) / 1000, runtime: r.runtime } };
 }
 const lastJson = (s: string) => JSON.parse(s.trim().split("\n").at(-1) ?? "{}");
+
+/**
+ * Resident inference (featurize in the cad engine, ensemble in the physics engine), one pair per artifact version,
+ * started on first use and closed after 15 idle minutes. The workers run the artifact's own modules
+ * (native/engine_worker.py imports them from the materialised, digest-checked bytes), so a resident prediction is
+ * byte-identical to a one-shot one; any worker fault ends that pair and the request falls back to the one-shot path.
+ */
+const IDLE_MS = 15 * 60_000;
+type Pair = { feat: EngineWorker; pred: EngineWorker; code: string; scratch: string; timer?: NodeJS.Timeout };
+const pool = new Map<string, Promise<Pair>>();
+async function pairFor(ctx: RunContext): Promise<Pair> {
+  const key = sha256(JSON.stringify([ctx.manifest.name, ctx.manifest.version, ctx.manifest.files]));
+  const have = pool.get(key);
+  if (have) { const p = await have.catch(() => undefined); if (p && p.feat.alive() && p.pred.alive()) return touch(key, p); pool.delete(key); p?.feat.close(); p?.pred.close(); }
+  const made = (async () => {
+    const base = join(ctx.config.state, "surrogate", "serve", key.slice(0, 16));
+    const code = await materialise({ ...ctx, directory: base }), scratch = join(base, "requests");
+    await mkdir(scratch, { recursive: true, mode: 0o700 });
+    const worker = join(ctx.config.repository, "native", "engine_worker.py");
+    const feat = await startWorker(ctx.config, { engine: "cad", program: ctx.config.cadquery!, args: ["-I", "-W", "ignore", worker, "--code", code, "--module", "surrogate_featurize"],
+      cwd: scratch, mounts: { read: [code], write: [scratch] } });
+    const pred = await startWorker(ctx.config, { engine: "physics", program: ctx.config.physicsPython!, args: ["-I", worker, "--code", code, "--module", "surrogate_train",
+      "--entry", "predict", "--cache", "load"], cwd: scratch, mounts: { read: [code], write: [scratch] } }).catch(e => { feat.close(); throw e; });
+    return touch(key, { feat, pred, code, scratch });
+  })();
+  pool.set(key, made);
+  made.catch(() => pool.delete(key));
+  return made;
+}
+function touch(key: string, p: Pair) {
+  if (p.timer) clearTimeout(p.timer);
+  p.timer = setTimeout(() => { p.feat.close(); p.pred.close(); pool.delete(key); }, IDLE_MS);
+  p.timer.unref();
+  return p;
+}
+type Reply = { ok: boolean; stdout?: string; error?: string };
+/** Resident prediction; undefined means "use the one-shot path" (no worker, or the worker failed). */
+async function residentPredict(ctx: RunContext, bytes: Buffer) {
+  let pair: Pair;
+  try { pair = await pairFor(ctx); } catch { return undefined; }
+  const dir = join(pair.scratch, randomUUID());
+  await mkdir(dir, { mode: 0o700 });
+  try {
+    const stepFile = join(dir, "part.step"), feats = join(dir, "part.npz");
+    await writePrivate(stepFile, bytes);
+    const t0 = Date.now();
+    const f = await pair.feat.request<Reply>({ argv: ["--step", stepFile, "--output", feats] }, 60_000);
+    const t1 = Date.now();
+    const receipt = (label: string, r: Reply, w: EngineWorker, from: number, to: number) => ({ command: ["worker", label], exitCode: r.ok ? 0 : 1,
+      stdoutSha256: sha256(r.stdout ?? r.error ?? ""), seconds: (to - from) / 1000, runtime: w.runtime });
+    if (!f.ok) return { failed: "featurize failed (the STEP did not tessellate)", receipts: [receipt("surrogate_featurize.py", f, pair.feat, t0, t1)] };
+    const p = await pair.pred.request<Reply>({ namespace: { weights: join(pair.code, "weights.pt"), features: feats, domain: join(pair.code, "domain.json") } }, 30_000);
+    const receipts = [receipt("surrogate_featurize.py", f, pair.feat, t0, t1), receipt("surrogate_train.py predict", p, pair.pred, t1, Date.now())];
+    if (!p.ok) return { failed: "prediction failed", receipts };
+    return { prediction: SurrogatePrediction.parse(lastJson(p.stdout ?? "")), receipts, ms: Date.now() - t0 };
+  } catch {
+    pair.feat.close(); pair.pred.close();
+    return undefined;
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
 
 export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): ArtifactAdapter {
   const short = family === "pillow-block" ? "pillow" : "bracket";
@@ -128,12 +190,20 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
       if (operation !== "predict") throw new DomainError("UNKNOWN_OPERATION", `Operation ${operation} is not part of this artifact`, 422);
       const g = PartGeometry.parse(inputs.geometry);
       if (g.family !== family) throw new DomainError("SURROGATE_FAMILY", `This surrogate is for ${family}, not ${g.family}`, 422);
-      const t0 = Date.now(), code = await materialise(ctx), stepFile = join(ctx.directory, "part.step"), feats = join(ctx.directory, "part.npz");
+      const t0 = Date.now(), stepFile = join(ctx.directory, "part.step"), feats = join(ctx.directory, "part.npz");
       const bytes = Buffer.from(g.stepBase64, "base64");
       if (bytes.length > MAX_STEP_BYTES || !bytes.subarray(0, 64).toString("latin1").includes("ISO-10303-21")) throw new DomainError("SURROGATE_INPUT", "geometry is not a STEP file within the size limit", 422);
+      const usage = (storage: number) => ({ cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: storage });
+      const resident = await residentPredict(ctx, bytes);
+      if (resident && "prediction" in resident && resident.prediction) {
+        const prediction = resident.prediction;
+        return { state: "ok", outputs: { prediction }, status: prediction.inDomain ? "in-domain" : "out-of-domain", receipts: resident.receipts, usage: usage(Buffer.byteLength(JSON.stringify(prediction))) };
+      }
+      if (resident && "failed" in resident) return { state: "failed", outputs: {}, status: "error", error: resident.failed, receipts: resident.receipts, usage: usage(0) };
+      // One-shot path (no resident worker available): the same modules as two single-use engine runs.
+      const code = await materialise(ctx);
       await writePrivate(stepFile, bytes);
       const f = await step(ctx, "cad", ctx.config.cadquery!, ["-I", "-W", "ignore", join(code, "surrogate_featurize.py"), "--step", stepFile, "--output", feats], 120_000);
-      const usage = (storage: number) => ({ cpuSeconds: null, maxRssKb: null, wallSeconds: (Date.now() - t0) / 1000, storageBytes: storage });
       if (f.r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: "featurize failed (the STEP did not tessellate)", receipts: [f.receipt], usage: usage(0) };
       const p = await step(ctx, "physics", ctx.config.physicsPython!, ["-I", join(code, "surrogate_train.py"), "predict", "--weights", join(code, "weights.pt"), "--features", feats,
         "--domain", join(code, "domain.json")], 120_000);
