@@ -15,14 +15,23 @@ const seeds = (process.argv[3] ?? "1,2,3").split(",").map(Number);
 const login = JSON.parse(await readFile(".state/deploy/admin-login.json", "utf8"));
 const browser = await chromium.launch();
 const page = await (await browser.newContext()).newPage();
-await page.goto(SITE, { timeout: 60_000 });
-await page.locator('input[name="username"]:visible').first().fill(login.username);
-await page.locator('input[name="password"]:visible').first().fill(login.password);
-await page.locator('input[name="signInSubmitButton"]:visible').first().click();
-await page.waitForURL(`${SITE}/**`);
-const call = async (m: "GET" | "POST", url: string, data?: unknown) => {
-  const r = await page.request.fetch(`${SITE}/api${url}`, { method: m, headers: { Origin: SITE }, data, timeout: 300_000 });
-  const body = await r.json(); if (r.status() >= 300) throw new Error(`${m} ${url}: ${r.status()} ${JSON.stringify(body).slice(0, 300)}`); return body;
+async function signIn() {
+  await page.goto(SITE, { timeout: 60_000 });
+  if (await page.locator('input[name="username"]:visible').count()) {
+    await page.locator('input[name="username"]:visible').first().fill(login.username);
+    await page.locator('input[name="password"]:visible').first().fill(login.password);
+    await page.locator('input[name="signInSubmitButton"]:visible').first().click();
+  }
+  await page.waitForURL(`${SITE}/**`);
+}
+await signIn();
+// The ALB session expires during a multi-hour study: an HTML answer means sign in again and repeat the request.
+// Repeating is safe: reads are reads, and every write carries its own requestId (the server returns the same record).
+const call = async (m: "GET" | "POST", url: string, data?: unknown, again = true): Promise<any> => {
+  const r = await page.request.fetch(`${SITE}/api${url}`, { method: m, headers: { Origin: SITE }, data, timeout: 300_000, maxRedirects: 0 });
+  const text = await r.text();
+  if (again && (r.status() >= 300 && r.status() < 400 || text.trimStart().startsWith("<"))) { await signIn(); return call(m, url, data, false); }
+  const body = JSON.parse(text); if (r.status() >= 300) throw new Error(`${m} ${url}: ${r.status()} ${JSON.stringify(body).slice(0, 300)}`); return body;
 };
 type Point = { index: number; origin: string; fidelity: string; feasible: boolean | null; mass?: number; deflectionMm?: number };
 type Run = { id: string; state: string; error?: string; warmStart?: { points: number; sources: string[] };
@@ -30,7 +39,11 @@ type Run = { id: string; state: string; error?: string; warmStart?: { points: nu
 
 async function optimise(projectId: string, family: CadFamily, warm: boolean, seed: number) {
   const t0 = Date.now();
-  let r: Run = await call("POST", `/projects/${projectId}/cad-optimizations`, { requestId: randomUUID(), projectRevision: 1, family, seed, warmStart: warm, solver: "batch",
+  // Resumable: a run of this task with the same family, seed and warm start (completed or still running) is reused, never repeated.
+  const state = await call("GET", "/state");
+  const prior = (state.cadOptimizations ?? []).filter((o: any) => o.projectId === projectId && o.request.family === family && o.request.seed === seed
+    && o.request.warmStart === warm && ["completed", "running"].includes(o.state)).at(-1);
+  let r: Run = prior ? await call("GET", `/cad-optimizations/${prior.id}`) : await call("POST", `/projects/${projectId}/cad-optimizations`, { requestId: randomUUID(), projectRevision: 1, family, seed, warmStart: warm, solver: "batch",
     budget: DEFAULT_OPTIMIZE_BUDGET, requirements: { ...FAMILY_DEFAULTS[family], structural: FAMILY_STRUCTURAL[family] } });
   while (r.state === "running" && Date.now() - t0 < 3_600_000) { await page.waitForTimeout(10_000); r = await call("GET", `/cad-optimizations/${r.id}`); }
   const pts = r.result?.points ?? [], solved = pts.filter(p => p.fidelity === "fea");
@@ -45,7 +58,10 @@ async function optimise(projectId: string, family: CadFamily, warm: boolean, see
 const runs: Awaited<ReturnType<typeof optimise>>[] = [], projects: string[] = [];
 try {
   for (const family of ["nema17-bracket", "pillow-block"] as CadFamily[]) {
-    const p = await call("POST", "/projects", { title: `部署核验：热启动配对研究（${family}）`, intendedDecision: "同一 CalculiX 预算下比较冷启动与用代理模型数据集热启动的寻优结果",
+    const title = `部署核验：热启动配对研究（${family}）`;
+    const existing = (await call("GET", "/state")).projects.filter((x: { title: string }) => x.title === title)
+      .sort((a: { createdAt: string }, b: { createdAt: string }) => a.createdAt.localeCompare(b.createdAt)).at(-1);
+    const p = existing ?? await call("POST", "/projects", { title, intendedDecision: "同一 CalculiX 预算下比较冷启动与用代理模型数据集热启动的寻优结果",
       requirements: { minSuccessRate: 0.5, preserveBaselineSuccess: true, requireSignificantImprovement: false, alpha: 0.05 } });
     projects.push(p.id);
     for (const seed of seeds) {
