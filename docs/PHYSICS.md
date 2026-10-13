@@ -68,6 +68,8 @@ Two-mesh convergence on the reference: centre displacement 0.5 %, out-of-round 0
 
 ## Physics-aware optimisation (`cad-optimize`)
 
+Warm start: besides earlier optimisation records, the measured CalculiX rows shipped with the family's released structural surrogate (same load case only) train the in-loop GP; they are never recommended or counted as found ([study](evidence/warmstart-study.json): lighter in 6 of 6 seed pairs at the same budget).
+
 `native/cad_optimize.py` works in rounds, using the standard practice "surrogate ranks, solver decides":
 
 1. **Initial design.** Measure the reference part, up to four AI-proposed seeds, and scrambled Sobol points. Each one is a CadQuery build with B-Rep checks plus a fine-mesh CalculiX solve.
