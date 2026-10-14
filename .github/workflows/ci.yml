@@ -95,7 +95,7 @@ jobs:
         run: npm run setup:demo
       - name: Native recording, feedback and independent handoff
         run: npm run test:native
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: workbench-verification-node-${{ matrix.node }}
@@ -160,7 +160,7 @@ jobs:
           robots: ${{ matrix.tools.robots || 'false' }}
       - name: Native ${{ matrix.lane }} lane
         run: ${{ matrix.run }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: workbench-native-${{ matrix.lane }}
@@ -212,7 +212,7 @@ jobs:
           browser: "true"
       - name: Browser ${{ matrix.shard }}
         run: npx playwright test ${{ matrix.args }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: workbench-browser-${{ strategy.job-index }}

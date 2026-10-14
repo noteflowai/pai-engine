@@ -62,13 +62,13 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')) && runner.os != 'Linux'
         timeout-minutes: 8
         run: node --import tsx scripts/desktop-e2e.ts --smoke
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
         with:
           name: pai-desktop-evidence-${{ matrix.os }}
           if-no-files-found: warn
           path: .state/evidence/desktop-e2e.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: success() && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
         with:
           name: pai-desktop-${{ matrix.os }}
