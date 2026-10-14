@@ -830,3 +830,16 @@ body.viewport-focus { overflow: hidden; }
 .sw-archived { color: var(--ink-3); font-weight: 500; }
 .surrogate-card { border: 1px dashed var(--line-2); border-radius: 10px; padding: 10px 12px; margin: 10px 0; display: grid; gap: 6px; }
 .surrogate-card h3 { font-size: 13px; margin: 0; }
+
+/* Evaluation throughput (web/views/artifacts.tsx). */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpis > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; }
+.kpis strong { font-size: 22px; color: var(--ink); }
+.tp-bars { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 12px; overflow-x: auto; }
+.tp-day { flex: 1 0 28px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
+.tp-day small { font-size: 10px; color: var(--ink-3); }
+.tp-stack { width: 100%; max-width: 32px; display: flex; flex-direction: column-reverse; border-radius: 4px 4px 0 0; overflow: hidden; min-height: 2px; }
+.tp-stack i, .tp-legend i { display: block; }
+.tp-solver { background: var(--brand); } .tp-geometry { background: #7fb8b0; } .tp-surrogate { background: #c4a7e7; }
+.tp-legend { font-size: 12px; color: var(--ink-2); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: -6px; }

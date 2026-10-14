@@ -49,6 +49,7 @@ import { KIND_STORE, admission, createRelease, decideRelease, supersedeForRevisi
 import { acquireRuntime } from "./runtime-lock.js";
 import { authentication } from "./auth.js";
 import { archiveTask } from "./project-archive.js";
+import { evaluationThroughput } from "./throughput.js";
 import { closeAllWorkers } from "./kernel/engine-runtime.js";
 import { cognitoDirectory, sessionRole, tenantSessionAllows, type Directory, type SessionRole } from "./members.js";
 import { artifactRoutes } from "./artifacts/routes.js";
@@ -297,6 +298,7 @@ export async function createApp(config: Config, adapters: Adapters = new NativeA
     const body = PackageSubmission.parse(request.body);
     return verifySealedPackage(body.package, body.trustedPublicKeyPem, config.tsaCaFile);
   }, { bodyLimit: Math.ceil(MAX_PACKAGE_BYTES * 1.4) + 1_000_000 });
+  app.get("/api/v1/throughput", async request => evaluationThroughput(store, z.object({ days: z.coerce.number().int().min(1).max(90).default(14) }).parse(request.query).days));
   app.get("/api/dataset/solver", async request => {
     const { domain } = z.object({ domain: z.enum(["structural-fea", "aero-rans"]).optional() }).parse(request.query);
     const d = solverDataset(store);
