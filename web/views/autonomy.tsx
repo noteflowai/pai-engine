@@ -17,6 +17,7 @@ const active = (g: AutonomyGrant) => !g.revokedAt && Date.parse(g.expiresAt) > D
  * Bounded autonomy in the product: the maintainer issues a grant (tools, runs, hours), then lets the AI iterate
  * "propose → native check → revise" on its own. Verdicts stay with the solvers; release and feedback stay human.
  */
+const SCREEN: Record<string, string> = { "likely-pass": "预测可过", unknown: "无法预测", "likely-fail": "预测不过", "geometry-fail": "几何不过" };
 export function AutonomyCard() {
   const c = useApp();
   const project = c.project!;
@@ -106,6 +107,12 @@ export function AutonomyCard() {
           return <Chip tone={ok ? "ok" : r.verdict === "rejected" ? "bad" : "warn"}>{ok ? "原生检查通过" : r.verdict === "rejected" ? "原生检查拒绝" : "证据不足"}</Chip>; })()}
         {r.failing?.length ? <small>未通过：{r.failing.map(f => f.id).join("、")}</small> : null}
         {r.note && <small>{r.note}</small>}
+        {r.screening && <details className="screening"><summary>代理模型筛选 {r.screening.variants.length} 个代码变体，只送 1 个做原生评审</summary>
+          <ul>{r.screening.variants.map(v => <li key={v.stepId}><Chip tone={v.chosen ? "ok" : v.class === "geometry-fail" || v.class === "likely-fail" ? "bad" : "muted"}>
+            {v.chosen ? "已选" : SCREEN[v.class]}</Chip> <code>{v.codeSha256.slice(0, 8)}</code>
+            {v.geometry.ok ? ` · B-Rep ${v.geometry.massG?.toFixed(1)} g${v.geometry.failed?.length ? ` · 未通过 ${v.geometry.failed.join("、")}` : ""}` : ` · ${v.geometry.reason ?? "沙箱未产生实体"}`}
+            {v.prediction && ` · 预测挠度 ≤ ${v.prediction.upper.deflectionMm.toFixed(4)} mm、应力 ≤ ${v.prediction.upper.stressMPa.toFixed(1)} MPa${v.prediction.inDomain ? "" : "（域外）"}`}</li>)}</ul>
+          <small>{r.screening.surrogate} · 权限：无；排序用 90 % 区间上界，结论只来自所选变体的 CalculiX 实测。</small></details>}
         {r.recordKind === "cad-review" && r.recordId && <button type="button" className="link" onClick={() => c.navigate("validate", { kind: "cad-part", id: r.recordId! })}>查看结果</button>}
       </li>)}{latest.state === "running" && <li><Chip tone="live">运行中</Chip><small>AI 正在提议或原生求解器正在运行…</small></li>}</ol>
       {pausedPlan && pausedStep && !ranPaused && live.length > 0 && <div className="reconcile" role="group" aria-label="核对后继续">

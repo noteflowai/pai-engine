@@ -231,6 +231,29 @@ async function buildGenerated(config: Config, publish: LiveBus["publish"], recor
 }
 
 /**
+ * Screening build of model-written code (autopilot): the same sandbox (cad_sandbox.py) and the same sandboxed
+ * measurement (cad_generated.py, shared B-Rep checks) as a CAD review's candidate, without a review record, a solve or
+ * a verdict. Returns the STEP and the geometry checks, or the sandbox outcome when no solid came out. Never evidence.
+ */
+export async function screenGeneratedPart(config: Config, family: CadFamily, code: string, requirements: CadRequirements, directory: string) {
+  const runtime = await sandboxRuntime(config);
+  const record = { receipts: [] as Receipt[], files: {} as Record<string, string> } as unknown as CadReview;
+  const codeSha256 = sha256(code), target = join(directory, "part");
+  await mkdir(target, { recursive: true, mode: 0o700 });
+  try { await buildGenerated(config, () => undefined, record, directory, runtime, { language: "cadquery-2.8", code } as CadSource, codeSha256, "screen"); }
+  catch (e) { return { ok: false as const, codeSha256, reason: e instanceof DomainError ? `${e.code}: ${record.sandbox?.error ?? e.message}`.slice(0, 300) : "sandbox failed" }; }
+  const input = join(directory, "input.json");
+  await writePrivate(input, JSON.stringify({ variant: "generated", family, requirements, codeSha256 }));
+  const src = join(directory, "candidate-src"), bwrap = config.bwrap ?? "bwrap";
+  const r = await runEngine(config, { engine: "cad", program: bwrap, args: sandboxArgs(config, runtime, { readOnly: [input, src], writable: [target] },
+    [runtime.python, "-I", "-W", "ignore", join(runtime.native, "cad_generated.py"), "--input", input, "--source", src, "--output", target]),
+    cwd: config.repository, mounts: { read: [input, src], write: [target] }, timeoutMs: 180_000, untrusted: true });
+  if (r.exitCode !== 0) return { ok: false as const, codeSha256, reason: "the solid could not be measured" };
+  const checks = CadChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
+  return { ok: true as const, codeSha256, step: join(target, "part.step"), mass: checks.mass, failed: checks.checks.filter(c => !c.passed).map(c => c.id) };
+}
+
+/**
  * AgentCore sandbox transport: the job runs in a fresh microVM (new session) with no network route or credentials.
  * It builds and measures with the same native scripts; returned files are written only after their digests verify,
  * then the local review continues exactly as for a local candidate (EvalArc, lifecycle, feedback).

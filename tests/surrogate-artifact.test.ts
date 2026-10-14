@@ -62,6 +62,23 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     const oneShot = JSON.parse(run(PY!, [join(code, "surrogate_train.py"), "predict", "--weights", join(code, "weights.pt"), "--features", join(code, "one.npz"), "--domain", join(code, "domain.json")]));
     assert.deepEqual({ ...oneShot, ms: 0 }, { ...p, ms: 0 }, "resident = one-shot, byte for byte"); void files;
     await assert.rejects(runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "pillow-block", stepBase64: step.toString("base64") } }, {}, dir), /This surrogate is for nema17-bracket/);
+    // Screening real model-written code: the template, a thinner plate (lighter) and broken code; only the sandbox,
+    // the B-Rep checks and the surrogate run, nothing is reviewed. Needs the OS sandbox (bubblewrap).
+    if (!process.env.PAI_SKIP_SANDBOX) {
+      const { screenVariants } = await import("../src/surrogate-screen.js");
+      const { DEFAULT_CAD_REQUIREMENTS, DEFAULT_STRUCTURAL } = await import("../src/cad.js");
+      const cur = getArtifact(store, a.id); store.put("artifact", { ...cur, revision: cur.revision + 1, state: "released" } as never, cur.revision);
+      const template = await readFile("native/cad_template.py", "utf8");
+      const sc = await screenVariants(store, config, "nema17-bracket", { ...DEFAULT_CAD_REQUIREMENTS, structural: DEFAULT_STRUCTURAL }, [
+        { stepId: "template", code: template }, { stepId: "thin", code: template.replace("T = 4.0  ", "T = 3.5  ") },
+        { stepId: "broken", code: "import cadquery as cq\nresult = cq.Workplane('XY').box(1, 1, 1).undefined_call()\n" }], join(state, "screen"));
+      assert.ok(sc, "a released surrogate screens");
+      const by = Object.fromEntries(sc!.variants.map(v => [v.stepId, v]));
+      assert.equal(by.broken.class, "geometry-fail"); assert.equal(by.broken.geometry.ok, false);
+      assert.ok(by.template.geometry.ok && by.template.geometry.massG! > 40 && by.template.prediction, JSON.stringify(by.template));
+      assert.ok(by.thin.geometry.massG! < by.template.geometry.massG!, "thinner is lighter by B-Rep");
+      assert.equal(sc!.variants.filter(v => v.chosen).length, 1); assert.equal(sc!.authority, "none");
+    }
     // Tampered weights break the chain: no new version can be built from them.
     const w = await readFile(join(model, "weights.pt")); w[w.length - 10] ^= 0xff; await writeFile(join(model, "weights.pt"), w);
     await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.1" }, "t"), /weights differ from the training report/);
@@ -77,4 +94,20 @@ test("in the CAD lane the surrogate is compared with the measurement and never d
   assert.equal(c.relError!.deflectionMm, 0.046); assert.equal(c.authority, "none");
   const na = compare({ artifact: "a", digest: "d", state: "not-applicable", reason: "load case", authority: "none" }, { deflectionMm: 1, stressMPa: 1, mass: 1 });
   assert.equal(na.relError, undefined);
+});
+
+test("screening ranks model-written variants conservatively: geometry failures last, likely-pass by mass, then unknown", async () => {
+  const { rankVariants } = await import("../src/surrogate-screen.js");
+  const { DEFAULT_STRUCTURAL } = await import("../src/cad.js");
+  const P = (d: number, s: number, m: number, inDomain = true) => ({ deflectionMm: d, stressMPa: s, mass: m, inDomain, upper: { deflectionMm: d * 1.25, stressMPa: s * 1.2 } });
+  const r = rankVariants([
+    { stepId: "heavy-pass", codeSha256: "a", geometry: { ok: true, massG: 60, failed: [] }, prediction: P(0.03, 40, 60) },
+    { stepId: "light-pass", codeSha256: "b", geometry: { ok: true, massG: 45, failed: [] }, prediction: P(0.04, 50, 45) },
+    { stepId: "fail", codeSha256: "c", geometry: { ok: true, massG: 38, failed: [] }, prediction: P(0.058, 70, 38) },
+    { stepId: "odd", codeSha256: "d", geometry: { ok: true, massG: 41, failed: [] }, prediction: P(0.03, 30, 41, false) },
+    { stepId: "wall", codeSha256: "e", geometry: { ok: true, massG: 30, failed: ["min-wall"] }, prediction: P(0.02, 20, 30) },
+    { stepId: "broken", codeSha256: "f", geometry: { ok: false, reason: "CAD_CODE_ERROR" }, prediction: null }], DEFAULT_STRUCTURAL);
+  assert.deepEqual(r.map(v => [v.stepId, v.class]), [["light-pass", "likely-pass"], ["heavy-pass", "likely-pass"], ["odd", "unknown"], ["fail", "likely-fail"], ["wall", "geometry-fail"], ["broken", "geometry-fail"]]);
+  assert.deepEqual(r.filter(v => v.chosen).map(v => v.stepId), ["light-pass"]);
+  assert.equal(rankVariants([{ stepId: "x", codeSha256: "x", geometry: { ok: false }, prediction: null }], DEFAULT_STRUCTURAL)[0].chosen, false, "nothing is chosen when all fail geometry");
 });
