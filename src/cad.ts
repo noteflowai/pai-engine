@@ -250,7 +250,33 @@ export async function screenGeneratedPart(config: Config, family: CadFamily, cod
     cwd: config.repository, mounts: { read: [input, src], write: [target] }, timeoutMs: 180_000, untrusted: true });
   if (r.exitCode !== 0) return { ok: false as const, codeSha256, reason: "the solid could not be measured" };
   const checks = CadChecks.parse(JSON.parse(await readFile(join(target, "checks.json"), "utf8")));
-  return { ok: true as const, codeSha256, step: join(target, "part.step"), mass: checks.mass, failed: checks.checks.filter(c => !c.passed).map(c => c.id) };
+  return { ok: true as const, codeSha256, step: join(target, "part.step"), mass: checks.mass, failed: checks.checks.filter(c => !c.passed).map(c => c.id),
+    checks: checks.checks, motorAxisZ: record.sandbox?.motorAxisZ };
+}
+
+/**
+ * Native measurement of model-written code for surrogate training data: the screening build above, then the family's
+ * CalculiX FEA on the fine mesh only (as the Batch dataset jobs do), under the given load case. No review record, no
+ * verdict; the caller stores the files with their digests. Bracket family only (the load is placed from the declared
+ * motor axis, which generated code reports through the sandbox).
+ */
+export async function measureGeneratedPart(config: Config, code: string, requirements: CadRequirements, directory: string) {
+  const g = await screenGeneratedPart(config, "nema17-bracket", code, requirements, directory);
+  if (!g.ok) return g;
+  const s = requirements.structural!;
+  const target = join(directory, "part");
+  if (!(g.motorAxisZ! > 0)) return { ok: false as const, codeSha256: g.codeSha256, reason: "the part declares no motor axis height" };
+  const input = join(directory, "fea-input.json");
+  await writePrivate(input, JSON.stringify({ step: g.step, parameters: { motorAxisHeight: g.motorAxisZ }, ccx: enginePath(config, "physics", config.ccx!), requirements: s, meshes: "fine-only",
+    load: { forceN: s.forceN, leverMm: s.leverMm, description: "radial pulley force, statically equivalent on the four M3 bores" } }));
+  const r = await runEngine(config, { engine: "physics", program: config.physicsPython!, args: ["-I", join(config.repository, "native", "fea_bracket.py"), "--input", input, "--output", target],
+    cwd: config.repository, mounts: { read: [input], write: [target] }, timeoutMs: 900_000 });
+  if (r.exitCode !== 0) return { ok: false as const, codeSha256: g.codeSha256, reason: `fea: ${r.stderr.trim().split("\n").at(-1)?.slice(0, 200) ?? r.exitCode}` };
+  // Fine mesh only: no two-level convergence block (as in the Batch dataset jobs), so the review schema does not apply.
+  const fea = z.object({ schema: z.literal("pai-fea-1"), checks: z.array(z.object({ id: z.enum(FEA_CHECKS), observed: z.number() }).passthrough()) }).passthrough()
+    .parse(JSON.parse(await readFile(join(target, "fea.json"), "utf8")));
+  const obs = (id: string) => fea.checks.find(c => c.id === id)!.observed;
+  return { ...g, fea: join(target, "fea.json"), checksFile: join(target, "checks.json"), deflectionMm: obs("max-deflection"), stressMPa: obs("max-stress"), runtime: r.runtime };
 }
 
 /**

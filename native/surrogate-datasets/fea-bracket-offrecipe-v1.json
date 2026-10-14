@@ -1,0 +1,39 @@
+{
+ "schema": "pai-surrogate-dataset-spec-1",
+ "id": "fea-bracket-offrecipe-v1",
+ "family": "nema17-bracket",
+ "purpose": "Off-recipe training and held-out data for the bracket surrogate: model-written-style CadQuery variants of the template (plate and rib thickness, rib leg, width, flange depth, plate height), sandboxed, measured by CalculiX (fine mesh) on the workbench host. Plate-height margin above the upper M3 bores starts at 41.5 (below about 41 the bores break the plate edge: not a buildable bracket, and FEA cannot place the load).",
+ "design": {
+  "method": "template-perturbation",
+  "seed": 20261015,
+  "n": 160,
+  "ranges": {
+   "T": [
+    3.0,
+    6.0
+   ],
+   "W": [
+    50,
+    74
+   ],
+   "D": [
+    24,
+    36
+   ],
+   "X": [
+    41.5,
+    56
+   ],
+   "RIB": [
+    3,
+    8
+   ],
+   "LEG": [
+    12,
+    30
+   ]
+  }
+ },
+ "source": "code",
+ "synthetic": true
+}

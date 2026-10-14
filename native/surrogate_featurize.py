@@ -74,7 +74,7 @@ def main():
                         mass=np.array([r["mass"] for r in measured]), deflectionMm=np.array([r["deflectionMm"] for r in measured]),
                         stressMPa=np.array([r["stressMPa"] for r in measured]),
                         parameters=np.array([[r["parameters"][k] for k in sorted(r["parameters"])] for r in measured]),
-                        parameterNames=np.array(sorted(measured[0]["parameters"])), rowsSha256=np.array([manifest["rowsSha256"]]))
+                        parameterNames=np.array(sorted(measured[0]["parameters"])), rowsSha256=np.array([manifest["rowsSha256"]]), dataset=np.array([manifest["id"]]))
     print(json.dumps({"rows": len(measured), "points": N_POINTS, "rowsSha256": manifest["rowsSha256"]}))
 
 

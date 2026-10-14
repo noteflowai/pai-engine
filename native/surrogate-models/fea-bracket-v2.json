@@ -1,0 +1,7 @@
+{
+ "schema": "pai-surrogate-model-spec-1",
+ "id": "fea-bracket-v2",
+ "family": "nema17-bracket",
+ "datasets": ["fea-bracket-v1", "fea-bracket-offrecipe-v1"],
+ "purpose": "Bracket surrogate trained on recipe parts (Sobol, AWS Batch) and off-recipe model-written-style parts (sandboxed code, workbench host); benchmarked per dataset."
+}

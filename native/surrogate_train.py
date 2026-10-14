@@ -56,10 +56,19 @@ def decode(z):
     return np.stack([np.exp(z[:, 0]), np.exp(z[:, 1]), z[:, 2]], axis=1)
 
 
-def split(index):
-    """Held-out = about 20 %, chosen by a seeded hash of the point index (stable when rows are added); never the reference."""
-    held = np.array([i != 0 and int(hashlib.sha256(f"{SEED}:{i}".encode()).hexdigest(), 16) % 5 == 0 for i in index])
+def key(tag, i):
+    """Row identity: the primary dataset keeps its historical key (its split is unchanged when datasets are added)."""
+    return f"{i}" if tag == 0 else f"{TAGS[tag]}:{i}"
+
+
+def split(index, tags=None):
+    """Held-out = about 20 %, chosen by a seeded hash of the row key (stable when rows are added); never the reference."""
+    tags = np.zeros(len(index), dtype=int) if tags is None else tags
+    held = np.array([not (t == 0 and i == 0) and int(hashlib.sha256(f"{SEED}:{key(t, i)}".encode()).hexdigest(), 16) % 5 == 0 for i, t in zip(index, tags)])
     return ~held, held
+
+
+TAGS = ["primary"]
 
 
 def spearman(a, b):
@@ -79,14 +88,20 @@ def metrics(pred, true):
 def train(a):
     setup()
     f = np.load(a.features)
-    x, index = f["x"], f["index"]
-    y = np.stack([f[k] for k in TARGETS], axis=1).astype(np.float64)
-    tr, te = split(index)
+    # Extra datasets (e.g. off-recipe parts): trained on together, benchmarked per dataset; the GP baseline needs recipe
+    # parameters and runs on the primary dataset only.
+    extras = [np.load(e) for e in (a.extra_features or [])]
+    TAGS[:] = [str(f["dataset"][0]) if "dataset" in f else "primary"] + [str(e["dataset"][0]) for e in extras]
+    x = np.concatenate([f["x"], *[e["x"] for e in extras]]); index = np.concatenate([f["index"], *[e["index"] for e in extras]])
+    G = np.concatenate([f["g"], *[e["g"] for e in extras]])
+    tags = np.concatenate([np.zeros(len(f["index"]), dtype=int), *[np.full(len(e["index"]), j + 1) for j, e in enumerate(extras)]])
+    y = np.stack([np.concatenate([f[k], *[e[k] for e in extras]]) for k in TARGETS], axis=1).astype(np.float64)
+    tr, te = split(index, tags)
     if te.sum() < 1 or tr.sum() < 5:
         raise SystemExit(f"dataset too small for a held-out benchmark ({int(tr.sum())} train / {int(te.sum())} held-out rows)")
     z = encode(y); mu, sd = z[tr].mean(0), z[tr].std(0) + 1e-9
     zt = torch.tensor((z - mu) / sd, dtype=torch.float32); xt = torch.tensor(x)
-    gt = torch.tensor(f["g"])
+    gt = torch.tensor(G)
     gmu, gsd = gt[tr].mean(0), gt[tr].std(0) + 1e-6
     gt = (gt - gmu) / gsd
 
@@ -113,7 +128,7 @@ def train(a):
             return np.stack([n(xt[rows], gt[rows]).numpy() for n in nets])  # standardised model space
     # Model selection: 5-fold CV on the training rows (one member, a third of the epochs); held-out rows are not touched.
     train_rows = np.flatnonzero(tr)
-    folds = np.array([int(hashlib.sha256(f"cv:{SEED}:{i}".encode()).hexdigest(), 16) % 5 for i in index[train_rows]])
+    folds = np.array([int(hashlib.sha256(f"cv:{SEED}:{key(t, i)}".encode()).hexdigest(), 16) % 5 for i, t in zip(index[train_rows], tags[train_rows])])
     cv, oof = {}, {}
     for cfg in CONFIGS:
         err, oof[cfg] = [], np.full((len(train_rows), len(TARGETS)), np.nan)
@@ -151,13 +166,18 @@ def train(a):
     from sklearn.gaussian_process import GaussianProcessRegressor
     from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
     # Constant recipe values (e.g. 35.012) can have a float std of ~1e-15: decide by range, not by std.
-    P = f["parameters"]; varying = (P[tr].max(0) - P[tr].min(0)) > 1e-9; P = P[:, varying]
-    plo, phi = P[tr].min(0), P[tr].max(0); Pn = (P - plo) / (phi - plo)
-    gp_pred = np.zeros_like(true)
+    n0 = len(f["index"]); tr0, te0 = tr[:n0], te[:n0]
+    P = f["parameters"]; varying = (P[tr0].max(0) - P[tr0].min(0)) > 1e-9; P = P[:, varying]
+    plo, phi = P[tr0].min(0), P[tr0].max(0); Pn = (P - plo) / (phi - plo)
+    gp_pred = np.zeros((int(te0.sum()), 3))
     for j in range(3):
         gp = GaussianProcessRegressor(ConstantKernel(1.0) * Matern(length_scale=[0.5] * Pn.shape[1], nu=2.5) + WhiteKernel(1e-4), normalize_y=True, random_state=0)
-        gp.fit(Pn[tr], ((z - mu) / sd)[tr, j]); gp_pred[:, j] = gp.predict(Pn[te]) * sd[j] + mu[j]
+        gp.fit(Pn[tr0], ((z[:n0] - mu) / sd)[tr0, j]); gp_pred[:, j] = gp.predict(Pn[te0]) * sd[j] + mu[j]
     gp_pred = decode(gp_pred)
+    te_tags = tags[te]
+    subsets = {TAGS[t]: {"heldOut": int((te_tags == t).sum()), "metrics": metrics(pred[te_tags == t], true[te_tags == t]),
+                         "conformal90Coverage": {k: float(np.mean(np.abs(encode(pred[te_tags == t])[:, j] - zt_true[te_tags == t, j]) <= conformal[j])) for j, k in enumerate(TARGETS)}}
+               for t in range(len(TAGS)) if (te_tags == t).sum() > 2} if extras else None
     # Inference latency of the ensemble on one part (2048 points), median of 20.
     lat = []
     for _ in range(20):
@@ -166,24 +186,26 @@ def train(a):
     buf = io.BytesIO()
     torch.save({"schema": "pai-structural-surrogate-1", "config": chosen, "members": [n.state_dict() for n in members], "mu": mu.tolist(), "sd": sd.tolist(), "conformal90": conformal.tolist(),
                 "gmu": gmu.tolist(), "gsd": gsd.tolist(),
-                "targets": TARGETS, "points": int(x.shape[1]), "rowsSha256": str(f["rowsSha256"][0])}, buf)
+                "targets": TARGETS, "points": int(x.shape[1]), "rowsSha256": str(f["rowsSha256"][0]),
+                "extraRowsSha256": [str(e["rowsSha256"][0]) for e in extras]}, buf)
     (out / "weights.pt").write_bytes(buf.getvalue())
     # What an artifact ships for its own re-check: the held-out rows (features and truths) and the training domain of
     # the geometry descriptors (a prediction outside it is flagged out-of-domain).
-    np.savez_compressed(out / "heldout.npz", x=x[te], g=f["g"][te], index=index[te], **{k: f[k][te] for k in TARGETS})
-    graw = f["g"][tr]
+    np.savez_compressed(out / "heldout.npz", x=x[te], g=G[te], index=index[te], tag=tags[te], tags=np.array(TAGS), **{k: y[te, j] for j, k in enumerate(TARGETS)})
+    graw = G[tr]
     domain = {"schema": "pai-surrogate-domain-1", "descriptors": ["surfaceArea", "volume", "extentX", "extentY", "extentZ"],
               "min": graw.min(0).tolist(), "max": graw.max(0).tolist(), "trainRows": int(tr.sum())}
     (out / "domain.json").write_text(json.dumps(domain, indent=1) + "\n")
     here = Path(__file__).resolve().parent
-    result = {"schema": "pai-surrogate-benchmark-1", "scripts": {n: hashlib.sha256((here / n).read_bytes()).hexdigest() for n in ("surrogate_train.py", "surrogate_featurize.py")}, "rowsSha256": str(f["rowsSha256"][0]), "featuresSha256": hashlib.sha256(Path(a.features).read_bytes()).hexdigest(),
+    result = {"schema": "pai-surrogate-benchmark-1", "scripts": {n: hashlib.sha256((here / n).read_bytes()).hexdigest() for n in ("surrogate_train.py", "surrogate_featurize.py")}, "rowsSha256": str(f["rowsSha256"][0]), "extraRowsSha256": [str(e["rowsSha256"][0]) for e in extras], "datasets": TAGS, "featuresSha256": hashlib.sha256(Path(a.features).read_bytes()).hexdigest(),
               "weightsSha256": hashlib.sha256(buf.getvalue()).hexdigest(), "train": int(tr.sum()), "heldOut": int(te.sum()),
               "selection": {"method": "5-fold CV on training rows, log-space RMSE (standardised)", "cvEpochs": a.cv_epochs, "cv": cv, "chosen": chosen},
               "model": {"name": "PointNet deep ensemble", "config": chosen, "members": a.members, "epochs": a.epochs, "trainPoints": a.train_points, "seed": SEED, "threads": THREADS, "torch": torch.__version__},
-              "surrogate": metrics(pred, true), "coverage2Sigma": cover, "conformal90": {"halfWidth": dict(zip(TARGETS, map(float, conformal))), "space": "log (deflection, stress), grams (mass)",
-                "from": f"{len(resid)} out-of-fold residuals of training rows", "heldOutCoverage": cover90}, "gpBaseline": metrics(gp_pred, true),
+              "surrogate": metrics(pred, true), **({"subsets": subsets} if subsets else {}), "coverage2Sigma": cover, "conformal90": {"halfWidth": dict(zip(TARGETS, map(float, conformal))), "space": "log (deflection, stress), grams (mass)",
+                "from": f"{len(resid)} out-of-fold residuals of training rows", "heldOutCoverage": cover90}, "gpBaseline": metrics(gp_pred, y[:n0][te0]),
               "inferenceMs": float(np.median(lat)), "trainSeconds": round(seconds, 1),
-              "heldOutPoints": [{"index": int(i), "true": t.tolist(), "pred": p.tolist(), "sigmaLog": s.tolist()} for i, t, p, s in zip(index[te], true, pred, spread)]}
+              "heldOutPoints": [{"index": int(i), "true": t.tolist(), "pred": p.tolist(), "sigmaLog": s.tolist()} for i, t, p, s in zip(index[te], true, pred, spread)],
+              "heldOutTags": [TAGS[t] for t in te_tags]}
     (out / "benchmark.json").write_text(json.dumps(result, indent=1, allow_nan=False) + "\n")
     print(json.dumps({k: result[k] for k in ("train", "heldOut", "weightsSha256", "inferenceMs", "trainSeconds", "selection")} |
                      {"surrogate": {k: (v["spearman"], round(v["medianRelError"], 3)) for k, v in result["surrogate"].items()},
@@ -213,7 +235,13 @@ def evaluate(a):
     zs = ensemble_z(w, members, h["x"], h["g"])
     pred, q = decode(zs.mean(0)), np.array(w["conformal90"])
     cover = {k: float(np.mean(np.abs(zs.mean(0)[:, j] - encode(true)[:, j]) <= q[j])) for j, k in enumerate(TARGETS)}
-    print(json.dumps({"schema": "pai-surrogate-evaluation-1", "heldOut": int(len(true)), "metrics": metrics(pred, true), "conformal90Coverage": cover,
+    subsets = None
+    if "tag" in h and len(h["tags"]) > 1:
+        t, names = h["tag"], [str(n) for n in h["tags"]]
+        subsets = {names[k]: {"heldOut": int((t == k).sum()), "metrics": metrics(pred[t == k], true[t == k]),
+                              "conformal90Coverage": {n: float(np.mean(np.abs(zs.mean(0)[t == k, j] - encode(true[t == k])[:, j]) <= q[j])) for j, n in enumerate(TARGETS)}}
+                   for k in range(len(names)) if (t == k).sum() > 2}
+    print(json.dumps({"schema": "pai-surrogate-evaluation-1", "heldOut": int(len(true)), "metrics": metrics(pred, true), "conformal90Coverage": cover, **({"subsets": subsets} if subsets else {}),
                       "weightsSha256": hashlib.sha256(Path(a.weights).read_bytes()).hexdigest()}, allow_nan=False))
 
 
@@ -236,7 +264,7 @@ def predict(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["train", "predict", "evaluate"])
-    ap.add_argument("--features", required=True); ap.add_argument("--output"); ap.add_argument("--weights"); ap.add_argument("--domain")
+    ap.add_argument("--features", required=True); ap.add_argument("--extra-features", action="append"); ap.add_argument("--output"); ap.add_argument("--weights"); ap.add_argument("--domain")
     ap.add_argument("--members", type=int, default=5); ap.add_argument("--epochs", type=int, default=300); ap.add_argument("--train-points", type=int, default=512)
     ap.add_argument("--cv-epochs", type=int, default=100)
     a = ap.parse_args()
