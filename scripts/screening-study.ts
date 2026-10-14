@@ -7,38 +7,43 @@
  *   - screened: the variant the screening chose;
  *   - unscreened: one variant at random (expected value over the group);
  *   - oracle: the lightest variant CalculiX accepted.
- * The released bracket surrogate is rebuilt from its own files in this throw-away state, accepted and released here
- * (same bytes and digest as the hosted artifact). Runs with the release's code: tools/hosted_e2e.sh (E2E=screening-study).
+ * The released bracket surrogate is copied (read-only) from the live store into this throw-away state and its own
+ * acceptance is re-run on the copy. Runs with the release's code: tools/hosted_e2e.sh (E2E=screening-study).
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { configuration } from "../src/config.js";
 import { createApp } from "../src/server.js";
 import { DEFAULT_CAD_REQUIREMENTS, DEFAULT_STRUCTURAL, type CadReview } from "../src/cad.js";
-import { createArtifact, getArtifact, validateArtifact } from "../src/artifacts/registry.js";
+import { adapterOf, artifactFiles, getArtifact } from "../src/artifacts/registry.js";
+import { DatabaseSync } from "node:sqlite";
 import { screenVariants } from "../src/surrogate-screen.js";
 import { closeAllWorkers } from "../src/kernel/engine-runtime.js";
 
 const config = configuration();
 const state = config.state;
 const GROUPS = Number(process.env.STUDY_GROUPS ?? 5), PER = 4, SEED = 20261014;
-const source = [process.env.PAI_SURROGATE_SOURCE, "/var/lib/pai/data/state/surrogate", join(config.repository, ".state", "surrogate")].find(p => p && existsSync(join(p, "models", "fea-bracket-v1", "weights.pt")));
-assert.ok(source, "a trained bracket surrogate is required (models/fea-bracket-v1)");
-await mkdir(join(state, "surrogate"), { recursive: true, mode: 0o700 });
-for (const d of ["models", "datasets"]) if (!existsSync(join(state, "surrogate", d))) await symlink(join(source!, d), join(state, "surrogate", d));
-
 const { app, store } = await createApp({ ...config, state });
 const headers = { host: `127.0.0.1:${config.port}`, "content-type": "application/json" };
 const post = async <T>(url: string, body: unknown) => { const r = await app.inject({ method: "POST", url, headers, payload: JSON.stringify(body) }); assert.ok(r.statusCode < 300, r.body); return r.json() as T; };
 try {
-  let a = await createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "1.0.0" }, "study");
-  a = await validateArtifact(store, config, a.id, "study");
-  // STUDY_SMOKE=1 (development only): a tiny local model that cannot pass acceptance; the result is marked as a smoke run.
-  if (process.env.STUDY_SMOKE !== "1") assert.equal(a.state, "validated", "the surrogate passes its own acceptance here too");
-  store.put("artifact", { ...a, revision: a.revision + 1, state: "released" } as never, a.revision);
+  // The released artifact itself: its stored records copied read-only from the live database (an immutable version
+  // cannot be rebuilt from a newer release's sources), then its own acceptance re-run on the copy.
+  const live = new DatabaseSync(process.env.PAI_LIVE_DB ?? "/var/lib/pai/data/state/workbench.sqlite", { readOnly: true });
+  const REF = process.env.STUDY_ARTIFACT ?? "structural-surrogate-bracket@1.0.0";
+  const row = live.prepare("SELECT body FROM documents WHERE kind='artifact' AND id=?").get(REF) as { body: string } | undefined;
+  assert.ok(row, `${REF} is not in the live store`);
+  const released = JSON.parse(row.body);
+  assert.equal(released.state, "released");
+  store.insert("artifact", released);
+  for (const f of live.prepare("SELECT body FROM documents WHERE kind='artifact-file' AND id LIKE ?").all(`${REF}/%`) as { body: string }[]) store.insert("artifact-file", JSON.parse(f.body));
+  live.close();
+  const a = getArtifact(store, REF);
+  const recheck = await adapterOf(a.manifest.adapter).validate({ config, directory: await mkdir(join(state, "recheck"), { recursive: true }).then(() => join(state, "recheck")),
+    files: artifactFiles(store, a), manifest: a.manifest });
+  assert.equal(recheck.passed, true, "the copied artifact passes its own acceptance again");
 
   // Seeded variants of the template (mulberry32).
   let s = SEED; const rnd = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -91,7 +96,7 @@ try {
     seconds: { screeningPerVariant: Math.round(groups.reduce((x, g) => x + g.screenSeconds, 0) / all.length * 10) / 10, reviewPerVariant: Math.round(all.reduce((x, t) => x + t.reviewSeconds, 0) / all.length * 10) / 10 },
   };
   await mkdir(join(state, "evidence"), { recursive: true });
-  await writeFile(join(state, "evidence", "screening-study.json"), JSON.stringify({ schema: "pai-screening-study-1", result: process.env.STUDY_SMOKE === "1" ? "smoke" : "completed", seed: SEED, artifact: getArtifact(store, a.id).digest,
+  await writeFile(join(state, "evidence", "screening-study.json"), JSON.stringify({ schema: "pai-screening-study-1", result: "completed", seed: SEED, artifact: getArtifact(store, a.id).digest,
     perGroup: PER, requirements, summary, groups, rule: "ground truth = native review of every variant; the screening never saw those results", synthetic: true }, null, 1) + "\n");
   console.log(JSON.stringify(summary));
 } finally { closeAllWorkers(); await app.close(); }
