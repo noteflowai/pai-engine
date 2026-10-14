@@ -1,0 +1,753 @@
+{
+ "schema": "pai-screening-study-1",
+ "result": "completed",
+ "seed": 20261014,
+ "artifact": "d341a55ecfc642f45c5e45f3755055bf00e82bac734b7fd3b85ca372c87af208",
+ "perGroup": 4,
+ "requirements": {
+  "maxMassG": 80,
+  "minWallMm": 3,
+  "edgeDistanceFactor": 1.5,
+  "requireNoInterference": true,
+  "maxEnvelopeMm": [
+   80,
+   40,
+   60
+  ],
+  "structural": {
+   "forceN": 60,
+   "leverMm": 50,
+   "safetyFactor": 2,
+   "maxDeflectionMm": 0.06
+  }
+ },
+ "summary": {
+  "groups": 5,
+  "variants": 20,
+  "screenedPickAccepted": 5,
+  "unscreenedExpectedAccepted": 3,
+  "screenedPickIsOracle": 2,
+  "groupsWithAnAccepted": 5,
+  "massGapToOracleG": [
+   0,
+   21.23,
+   4.32,
+   0,
+   0.97
+  ],
+  "classVsTruth": {
+   "likely-pass": {
+    "n": 5,
+    "accepted": 5
+   },
+   "unknown": {
+    "n": 1,
+    "accepted": 1
+   },
+   "likely-fail": {
+    "n": 10,
+    "accepted": 6
+   },
+   "geometry-fail": {
+    "n": 4,
+    "accepted": 0
+   }
+  },
+  "surrogateOffRecipe": {
+   "n": 20,
+   "inDomain": 19,
+   "medianRelError": {
+    "deflectionMm": 0.10756525224656323,
+    "stressMPa": 0.10448889350212792,
+    "mass": 0.011464666736408034
+   }
+  },
+  "seconds": {
+   "screeningPerVariant": 6.1,
+   "reviewPerVariant": 19.6
+  }
+ },
+ "groups": [
+  {
+   "group": 1,
+   "screenSeconds": 33.087,
+   "variants": [
+    {
+     "stepId": "g1v1",
+     "params": {
+      "T": 3.49,
+      "W": 68.12,
+      "RIB": 3.3,
+      "LEG": 16.41
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "max-deflection"
+     ],
+     "massG": 46.65,
+     "deflectionMm": 0.0931,
+     "stressMPa": 61.6,
+     "reviewSeconds": 18.669,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.0824669318061664,
+      "stressMPa": 66.39509278303125,
+      "mass": 46.23501969767739,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.10368844127666826,
+       "stressMPa": 80.3277941266307
+      }
+     }
+    },
+    {
+     "stepId": "g1v2",
+     "params": {
+      "T": 5.14,
+      "W": 57.39,
+      "RIB": 3.71,
+      "LEG": 18.03
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 57.11,
+     "deflectionMm": 0.0301,
+     "stressMPa": 33.5,
+     "reviewSeconds": 19.726,
+     "screenClass": "likely-pass",
+     "chosen": true,
+     "prediction": {
+      "deflectionMm": 0.026412200272435803,
+      "stressMPa": 28.60615094686279,
+      "mass": 56.74297445257254,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.033208945900558916,
+       "stressMPa": 34.60901864425421
+      }
+     }
+    },
+    {
+     "stepId": "g1v3",
+     "params": {
+      "T": 3.78,
+      "W": 62.63,
+      "RIB": 3.85,
+      "LEG": 18.8
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "max-deflection"
+     ],
+     "massG": 47.34,
+     "deflectionMm": 0.0616,
+     "stressMPa": 52.7,
+     "reviewSeconds": 18.743,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.05866176507170689,
+      "stressMPa": 54.41695966541618,
+      "mass": 47.29957082668004,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.07375740614577553,
+       "stressMPa": 65.83610549781287
+      }
+     }
+    },
+    {
+     "stepId": "g1v4",
+     "params": {
+      "T": 4.52,
+      "W": 61.8,
+      "RIB": 4.65,
+      "LEG": 24.68
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 59.09,
+     "deflectionMm": 0.0275,
+     "stressMPa": 32.3,
+     "reviewSeconds": 19.828,
+     "screenClass": "likely-pass",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.02978026476135839,
+      "stressMPa": 28.773819536279603,
+      "mass": 60.248619450300474,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.037443726428062034,
+       "stressMPa": 34.81187170714831
+      }
+     }
+    }
+   ],
+   "screened": {
+    "stepId": "g1v2",
+    "accepted": true,
+    "massG": 57.11
+   },
+   "unscreened": {
+    "acceptRate": 0.5,
+    "meanAcceptedMassG": 58.1
+   },
+   "oracle": {
+    "stepId": "g1v2",
+    "massG": 57.11
+   }
+  },
+  {
+   "group": 2,
+   "screenSeconds": 21.836,
+   "variants": [
+    {
+     "stepId": "g2v1",
+     "params": {
+      "T": 3.78,
+      "W": 57.56,
+      "RIB": 4.86,
+      "LEG": 18.16
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 44.06,
+     "deflectionMm": 0.0552,
+     "stressMPa": 55,
+     "reviewSeconds": 18.61,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.05227835580322146,
+      "stressMPa": 55.17924142199514,
+      "mass": 43.770667246194584,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.0657313314200174,
+       "stressMPa": 66.75834853479542
+      }
+     }
+    },
+    {
+     "stepId": "g2v2",
+     "params": {
+      "T": 5.47,
+      "W": 69.77,
+      "RIB": 4.22,
+      "LEG": 15.07
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 73.79,
+     "deflectionMm": 0.0299,
+     "stressMPa": 23.7,
+     "reviewSeconds": 21.774,
+     "screenClass": "likely-pass",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.02651673843327617,
+      "stressMPa": 22.554397264151664,
+      "mass": 72.94402224152046,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.033340385238898124,
+       "stressMPa": 27.28733260461758
+      }
+     }
+    },
+    {
+     "stepId": "g2v3",
+     "params": {
+      "T": 5.09,
+      "W": 61.31,
+      "RIB": 4.81,
+      "LEG": 24.62
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 65.29,
+     "deflectionMm": 0.0207,
+     "stressMPa": 25.9,
+     "reviewSeconds": 20.717,
+     "screenClass": "likely-pass",
+     "chosen": true,
+     "prediction": {
+      "deflectionMm": 0.02292660072150386,
+      "stressMPa": 22.839788413871506,
+      "mass": 66.49721080580615,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.028826384594649344,
+       "stressMPa": 27.63261175943664
+      }
+     }
+    },
+    {
+     "stepId": "g2v4",
+     "params": {
+      "T": 4.79,
+      "W": 54.01,
+      "RIB": 5.33,
+      "LEG": 18.87
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "hole-edge-distance"
+     ],
+     "massG": 51.98,
+     "deflectionMm": 0.0277,
+     "stressMPa": 34.7,
+     "reviewSeconds": 18.984,
+     "screenClass": "geometry-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.027707105243079122,
+      "stressMPa": 32.34471510365456,
+      "mass": 51.567068176378214,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.034837073382287004,
+       "stressMPa": 39.13210309715704
+      }
+     }
+    }
+   ],
+   "screened": {
+    "stepId": "g2v3",
+    "accepted": true,
+    "massG": 65.29
+   },
+   "unscreened": {
+    "acceptRate": 0.75,
+    "meanAcceptedMassG": 61.046666666666674
+   },
+   "oracle": {
+    "stepId": "g2v1",
+    "massG": 44.06
+   }
+  },
+  {
+   "group": 3,
+   "screenSeconds": 22.314,
+   "variants": [
+    {
+     "stepId": "g3v1",
+     "params": {
+      "T": 3.38,
+      "W": 66.13,
+      "RIB": 4.49,
+      "LEG": 20.93
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "max-deflection"
+     ],
+     "massG": 46.78,
+     "deflectionMm": 0.0708,
+     "stressMPa": 59,
+     "reviewSeconds": 18.665,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.07171280639099499,
+      "stressMPa": 60.4170776800241,
+      "mass": 47.16847498471518,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.09016691844114126,
+       "stressMPa": 73.09532036460935
+      }
+     }
+    },
+    {
+     "stepId": "g3v2",
+     "params": {
+      "T": 3.58,
+      "W": 66.72,
+      "RIB": 5.51,
+      "LEG": 20.48
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 50.6,
+     "deflectionMm": 0.0586,
+     "stressMPa": 49.1,
+     "reviewSeconds": 18.808,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.05986970917379522,
+      "stressMPa": 50.366119386816784,
+      "mass": 50.65523453214947,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.07527619480871835,
+       "stressMPa": 60.935215231682236
+      }
+     }
+    },
+    {
+     "stepId": "g3v3",
+     "params": {
+      "T": 4.9,
+      "W": 62.42,
+      "RIB": 3.75,
+      "LEG": 26.56
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 63.54,
+     "deflectionMm": 0.0234,
+     "stressMPa": 28,
+     "reviewSeconds": 20.701,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 2.1675063181999144e+153,
+      "stressMPa": 2.3651116242902946e+122,
+      "mass": -4082.0270833230634,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 2.7252784439674194e+153,
+       "stressMPa": 2.861419295900783e+122
+      }
+     }
+    },
+    {
+     "stepId": "g3v4",
+     "params": {
+      "T": 4.07,
+      "W": 66.93,
+      "RIB": 6.38,
+      "LEG": 15.83
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 54.92,
+     "deflectionMm": 0.0535,
+     "stressMPa": 40.5,
+     "reviewSeconds": 19.526,
+     "screenClass": "likely-fail",
+     "chosen": true,
+     "prediction": {
+      "deflectionMm": 0.04984940197415298,
+      "stressMPa": 42.54351221476093,
+      "mass": 53.844130994671524,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.06267732624542119,
+       "stressMPa": 51.47107033615766
+      }
+     }
+    }
+   ],
+   "screened": {
+    "stepId": "g3v4",
+    "accepted": true,
+    "massG": 54.92
+   },
+   "unscreened": {
+    "acceptRate": 0.75,
+    "meanAcceptedMassG": 56.35333333333333
+   },
+   "oracle": {
+    "stepId": "g3v2",
+    "massG": 50.6
+   }
+  },
+  {
+   "group": 4,
+   "screenSeconds": 22.174,
+   "variants": [
+    {
+     "stepId": "g4v1",
+     "params": {
+      "T": 4.49,
+      "W": 67.2,
+      "RIB": 6.92,
+      "LEG": 25.61
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 68.33,
+     "deflectionMm": 0.0248,
+     "stressMPa": 26.5,
+     "reviewSeconds": 20.608,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 1370883836.6416023,
+      "stressMPa": 5907449959.694562,
+      "mass": -221.03642536523498,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 1723658260.0993218,
+       "stressMPa": 7147100851.661054
+      }
+     }
+    },
+    {
+     "stepId": "g4v2",
+     "params": {
+      "T": 5,
+      "W": 67.62,
+      "RIB": 5.05,
+      "LEG": 19.31
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 67.96,
+     "deflectionMm": 0.0295,
+     "stressMPa": 28.6,
+     "reviewSeconds": 21.119,
+     "screenClass": "likely-pass",
+     "chosen": true,
+     "prediction": {
+      "deflectionMm": 0.029251558880597005,
+      "stressMPa": 25.561043096179286,
+      "mass": 67.7959555011611,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.03677896677871787,
+       "stressMPa": 30.924909077265152
+      }
+     }
+    },
+    {
+     "stepId": "g4v3",
+     "params": {
+      "T": 4.98,
+      "W": 54.4,
+      "RIB": 3.92,
+      "LEG": 20.19
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "hole-edge-distance"
+     ],
+     "massG": 53.43,
+     "deflectionMm": 0.0271,
+     "stressMPa": 33.8,
+     "reviewSeconds": 19.377,
+     "screenClass": "geometry-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.026273017372053172,
+      "stressMPa": 30.268275399628074,
+      "mass": 53.51990943476286,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.03303394656837857,
+       "stressMPa": 36.6199321810554
+      }
+     }
+    },
+    {
+     "stepId": "g4v4",
+     "params": {
+      "T": 4.05,
+      "W": 55.21,
+      "RIB": 4.63,
+      "LEG": 27.12
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "hole-edge-distance"
+     ],
+     "massG": 49.81,
+     "deflectionMm": 0.0256,
+     "stressMPa": 37.8,
+     "reviewSeconds": 19.175,
+     "screenClass": "geometry-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 4.308655420615557e+122,
+      "stressMPa": 2.8575544808863564e+98,
+      "mass": -3268.3100593928907,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 5.417417075876746e+122,
+       "stressMPa": 3.457198995057914e+98
+      }
+     }
+    }
+   ],
+   "screened": {
+    "stepId": "g4v2",
+    "accepted": true,
+    "massG": 67.96
+   },
+   "unscreened": {
+    "acceptRate": 0.5,
+    "meanAcceptedMassG": 68.145
+   },
+   "oracle": {
+    "stepId": "g4v2",
+    "massG": 67.96
+   }
+  },
+  {
+   "group": 5,
+   "screenSeconds": 21.925,
+   "variants": [
+    {
+     "stepId": "g5v1",
+     "params": {
+      "T": 4.65,
+      "W": 56.65,
+      "RIB": 6.2,
+      "LEG": 27.68
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 60.84,
+     "deflectionMm": 0.016,
+     "stressMPa": 24.7,
+     "reviewSeconds": 20.177,
+     "screenClass": "unknown",
+     "chosen": true,
+     "prediction": {
+      "deflectionMm": 3.407774159279621e+245,
+      "stressMPa": 2.414952265065994e+194,
+      "mass": -6552.079392611088,
+      "inDomain": false,
+      "upper": {
+       "deflectionMm": 4.2847088288569866e+245,
+       "stressMPa": 2.921718763279385e+194
+      }
+     }
+    },
+    {
+     "stepId": "g5v2",
+     "params": {
+      "T": 4.48,
+      "W": 64.94,
+      "RIB": 3.2,
+      "LEG": 26.34
+     },
+     "state": "completed",
+     "accepted": true,
+     "failed": [],
+     "massG": 59.87,
+     "deflectionMm": 0.0319,
+     "stressMPa": 31.8,
+     "reviewSeconds": 19.989,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 3.555802335454652e+85,
+      "stressMPa": 2.8061359158739143e+69,
+      "mass": -2268.7495096465113,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 4.4708296231733464e+85,
+       "stressMPa": 3.3949904833821555e+69
+      }
+     }
+    },
+    {
+     "stepId": "g5v3",
+     "params": {
+      "T": 3.69,
+      "W": 54.63,
+      "RIB": 6.21,
+      "LEG": 15.39
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "hole-edge-distance",
+      "max-deflection"
+     ],
+     "massG": 40.54,
+     "deflectionMm": 0.0636,
+     "stressMPa": 54,
+     "reviewSeconds": 18.266,
+     "screenClass": "geometry-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.055566674616853176,
+      "stressMPa": 63.125960174190226,
+      "mass": 39.58140086256007,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.06986584503339667,
+       "stressMPa": 76.3726492481714
+      }
+     }
+    },
+    {
+     "stepId": "g5v4",
+     "params": {
+      "T": 4.08,
+      "W": 62.4,
+      "RIB": 3.26,
+      "LEG": 15.95
+     },
+     "state": "completed",
+     "accepted": false,
+     "failed": [
+      "max-deflection"
+     ],
+     "massG": 49.18,
+     "deflectionMm": 0.0629,
+     "stressMPa": 50.6,
+     "reviewSeconds": 19.181,
+     "screenClass": "likely-fail",
+     "chosen": false,
+     "prediction": {
+      "deflectionMm": 0.05305678766846999,
+      "stressMPa": 49.9400294560453,
+      "mass": 48.6026422911559,
+      "inDomain": true,
+      "upper": {
+       "deflectionMm": 0.06671007993145013,
+       "stressMPa": 60.419712311153326
+      }
+     }
+    }
+   ],
+   "screened": {
+    "stepId": "g5v1",
+    "accepted": true,
+    "massG": 60.84
+   },
+   "unscreened": {
+    "acceptRate": 0.5,
+    "meanAcceptedMassG": 60.355000000000004
+   },
+   "oracle": {
+    "stepId": "g5v2",
+    "massG": 59.87
+   }
+  }
+ ],
+ "rule": "ground truth = native review of every variant; the screening never saw those results",
+ "synthetic": true,
+ "site": "https://pai.oneai.host (hosted instance, throw-away state, release 0223757)",
+ "reading": [
+  "screened pick passed CalculiX in 5/5 groups; an unscreened pick passes in 3 of 5 on expectation (12/20 variants passed)",
+  "the pick was the lightest passing variant in 2/5 groups; 21.2, 4.3 and 1.0 g heavier in the others",
+  "likely-pass was always right (5/5); likely-fail was wrong for 6 of 10 (those parts passed): off the recipe the surrogate's error grows (median deflection error 10.8 % vs 2.1 % on recipe) and the 90 % upper bound is conservative by design",
+  "so screening trades mass for safety: it avoids sending failing parts to the solver but leaves lighter passing parts unexplored; n = 20 variants, 5 groups: indicative only"
+ ]
+}
