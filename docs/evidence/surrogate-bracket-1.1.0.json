@@ -1,0 +1,155 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-bracket@1.1.0",
+ "digest": "8137a80c201e98850f7b4c34dd217c12443018b1d4e62caf44a6a910440c0539",
+ "state": "released",
+ "supersedes": "structural-surrogate-bracket@1.0.0 (deprecated, kept)",
+ "datasets": {
+  "fea-bracket-v1": {
+   "source": "recipe, Sobol, AWS Batch",
+   "measured": 245
+  },
+  "fea-bracket-offrecipe-v1": {
+   "source": "template-perturbation code, sandboxed, CalculiX fine mesh on the host",
+   "planned": 160,
+   "measured": 160,
+   "failed": 0
+  }
+ },
+ "acceptance": {
+  "recipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "offRecipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8,
+   "minHeldOut": 20
+  },
+  "failed": [],
+  "subsets": {
+   "fea-bracket-v1": {
+    "heldOut": 40,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9986,
+      "medianRelError": 0.01970992994411585,
+      "p90RelError": 0.06134133682489531,
+      "maxRelError": 0.09603339660642717
+     },
+     "stressMPa": {
+      "spearman": 0.998,
+      "medianRelError": 0.019567917178710363,
+      "p90RelError": 0.054131633086858706,
+      "maxRelError": 0.13070074426181735
+     },
+     "mass": {
+      "spearman": 0.9998,
+      "medianRelError": 0.0023538793284741694,
+      "p90RelError": 0.007666262673910736,
+      "maxRelError": 0.018665681208968363
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 1,
+     "mass": 0.975
+    }
+   },
+   "fea-bracket-offrecipe-v1": {
+    "heldOut": 32,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9886,
+      "medianRelError": 0.058786771395897296,
+      "p90RelError": 0.1078476272896342,
+      "maxRelError": 0.16737172654443197
+     },
+     "stressMPa": {
+      "spearman": 0.9782,
+      "medianRelError": 0.04280451293713904,
+      "p90RelError": 0.08880653241438288,
+      "maxRelError": 0.17894570172914143
+     },
+     "mass": {
+      "spearman": 0.9996,
+      "medianRelError": 0.0026446294040350917,
+      "p90RelError": 0.00735790820158813,
+      "maxRelError": 0.013098985646377022
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 0.96875,
+     "mass": 1
+    }
+   }
+  },
+  "overall": {
+   "deflectionMm": {
+    "spearman": 0.9963,
+    "medianRelError": 0.026121454651428275,
+    "p90RelError": 0.07619205819005063,
+    "maxRelError": 0.16737172654443197
+   },
+   "stressMPa": {
+    "spearman": 0.9957,
+    "medianRelError": 0.027147053393713295,
+    "p90RelError": 0.07817606935432239,
+    "maxRelError": 0.17894570172914143
+   },
+   "mass": {
+    "spearman": 0.9996,
+    "medianRelError": 0.0025428775452915066,
+    "p90RelError": 0.007617582124262084,
+    "maxRelError": 0.018665681208968363
+   }
+  },
+  "reproducesTrainingReport": true
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9996,
+   "medianRelError": 0.0027900591842027105,
+   "p90RelError": 0.005366540686489041,
+   "maxRelError": 0.007601459950487848
+  },
+  "stressMPa": {
+   "spearman": 0.9987,
+   "medianRelError": 0.01314466661762372,
+   "p90RelError": 0.02910835138681346,
+   "maxRelError": 0.047737234396104264
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 3.63535951928436e-05,
+   "p90RelError": 0.0004588607451927125,
+   "maxRelError": 0.002085371345759724
+  }
+ },
+ "authority": "suggestion",
+ "physicalValidation": false
+}
