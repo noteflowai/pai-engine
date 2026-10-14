@@ -843,3 +843,4 @@ body.viewport-focus { overflow: hidden; }
 .tp-solver { background: var(--brand); } .tp-geometry { background: #7fb8b0; } .tp-surrogate { background: #c4a7e7; }
 .tp-legend { font-size: 12px; color: var(--ink-2); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .tp-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: -6px; }
+.screening ul { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 4px; font-size: 12px; }
