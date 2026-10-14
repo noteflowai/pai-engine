@@ -27,6 +27,14 @@ export const SURROGATE_GATE = {
   deflectionMm: { minSpearman: 0.9, maxMedianRelError: 0.1 }, stressMPa: { minSpearman: 0.9, maxMedianRelError: 0.1 },
   mass: { minSpearman: 0.95, maxMedianRelError: 0.05 }, minConformalCoverage: 0.8,
 } as const;
+/**
+ * Off-recipe gate for models trained with off-recipe data (model-written-style parts): fixed on 2026-10-15 before any
+ * off-recipe benchmark was computed. Looser than the recipe gate (the parts are more varied), but still a real gate.
+ */
+export const OFFRECIPE_GATE = {
+  deflectionMm: { minSpearman: 0.8, maxMedianRelError: 0.1 }, stressMPa: { minSpearman: 0.8, maxMedianRelError: 0.1 },
+  mass: { minSpearman: 0.95, maxMedianRelError: 0.05 }, minConformalCoverage: 0.8, minHeldOut: 20,
+} as const;
 const TARGETS = ["deflectionMm", "stressMPa", "mass"] as const;
 const MAX_STEP_BYTES = 8_000_000;
 
@@ -37,20 +45,37 @@ export const SurrogatePrediction = z.object({ schema: z.literal("pai-surrogate-p
   sigmaLog: z.record(z.string(), z.number()), interval90: z.object({ deflectionMm: Range, stressMPa: Range, mass: Range }).strict(),
   inDomain: z.boolean(), outsideDomain: z.array(z.string()), ms: z.number(), authority: z.literal("suggestion") }).strict();
 const Metrics = z.record(z.string(), z.object({ spearman: z.number().nullable(), medianRelError: z.number(), p90RelError: z.number(), maxRelError: z.number() }).strict());
+const Subset = z.object({ heldOut: z.number(), metrics: Metrics, conformal90Coverage: z.record(z.string(), z.number()) }).strict();
 const Evaluation = z.object({ schema: z.literal("pai-surrogate-evaluation-1"), heldOut: z.number(), metrics: Metrics, conformal90Coverage: z.record(z.string(), z.number()),
-  weightsSha256: z.string() }).strict();
+  subsets: z.record(z.string(), Subset).optional(), weightsSha256: z.string() }).strict();
 const SCHEMAS: Record<string, z.ZodType> = { "pai-part-geometry-1": PartGeometry, "pai-surrogate-prediction-1": SurrogatePrediction };
 const issues = (r: { success: boolean; error?: z.ZodError }) => r.success ? [] : r.error!.issues.slice(0, 8).map(i => `${i.path.join(".") || "(root)"}: ${i.message}`);
 const hash = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** The gate applied to an evaluation; returns the failed criteria (empty = admitted). */
-export function surrogateGate(ev: { metrics: Record<string, { spearman: number | null; medianRelError: number }>; conformal90Coverage: Record<string, number> }) {
+type Ev = { metrics: Record<string, { spearman: number | null; medianRelError: number }>; conformal90Coverage: Record<string, number> };
+export function surrogateGate(ev: Ev, gate: typeof SURROGATE_GATE | typeof OFFRECIPE_GATE = SURROGATE_GATE, label = "") {
   const failed: string[] = [];
   for (const k of TARGETS) {
-    const m = ev.metrics[k], g = SURROGATE_GATE[k];
-    if (!m || m.spearman === null || m.spearman < g.minSpearman) failed.push(`${k}: Spearman ${m?.spearman ?? "n/a"} < ${g.minSpearman}`);
-    if (!m || m.medianRelError > g.maxMedianRelError) failed.push(`${k}: median relative error ${m?.medianRelError} > ${g.maxMedianRelError}`);
-    if ((ev.conformal90Coverage[k] ?? 0) < SURROGATE_GATE.minConformalCoverage) failed.push(`${k}: 90 % interval coverage ${ev.conformal90Coverage[k]} < ${SURROGATE_GATE.minConformalCoverage}`);
+    const m = ev.metrics[k], g = gate[k];
+    if (!m || m.spearman === null || m.spearman < g.minSpearman) failed.push(`${label}${k}: Spearman ${m?.spearman ?? "n/a"} < ${g.minSpearman}`);
+    if (!m || m.medianRelError > g.maxMedianRelError) failed.push(`${label}${k}: median relative error ${m?.medianRelError} > ${g.maxMedianRelError}`);
+    if ((ev.conformal90Coverage[k] ?? 0) < gate.minConformalCoverage) failed.push(`${label}${k}: 90 % interval coverage ${ev.conformal90Coverage[k]} < ${gate.minConformalCoverage}`);
+  }
+  return failed;
+}
+/** The acceptance gate of an evaluation: recipe gate on the primary dataset, off-recipe gate on every other one. */
+export function acceptanceGate(ev: Ev & { subsets?: Record<string, { heldOut: number } & Ev> }, datasets: string[]) {
+  if (datasets.length < 2) return surrogateGate(ev);
+  // Several datasets: each must be benchmarked on its own held-out rows; a missing subset fails, never falls back.
+  const subsets = ev.subsets ?? {};
+  const failed: string[] = [];
+  const [primary, ...others] = datasets;
+  failed.push(...(subsets[primary] ? surrogateGate(subsets[primary], SURROGATE_GATE, `${primary} `) : [`${primary}: no held-out rows`]));
+  for (const d of others) {
+    const sub = subsets[d];
+    if (!sub || sub.heldOut < OFFRECIPE_GATE.minHeldOut) { failed.push(`${d}: ${sub?.heldOut ?? 0} held-out rows < ${OFFRECIPE_GATE.minHeldOut}`); continue; }
+    failed.push(...surrogateGate(sub, OFFRECIPE_GATE, `${d} `));
   }
   return failed;
 }
@@ -135,7 +160,9 @@ async function residentPredict(ctx: RunContext, bytes: Buffer) {
 
 export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): ArtifactAdapter {
   const short = family === "pillow-block" ? "pillow" : "bracket";
-  const id = `structural-surrogate-${short}`, dataset = `fea-${short}-v1`;
+  // The model directory a new version is built from (native/surrogate-models/<id>.json lists its datasets; a model
+  // without a spec is trained on the dataset of the same name). Released versions keep their own stored bytes.
+  const id = `structural-surrogate-${short}`, modelId = family === "pillow-block" ? "fea-pillow-v1" : "fea-bracket-v2", dataset = `fea-${short}-v1`;
   const title = family === "pillow-block" ? "轴承座结构代理模型：由几何预测受载失圆前的挠度、应力与质量" : "电机支架结构代理模型：由几何预测挠度、应力与质量";
   return {
     id,
@@ -145,22 +172,31 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
 
     async build(config, version, actor) {
       const native = (f: string) => readFile(join(config.repository, "native", f));
-      const model = join(config.state, "surrogate", "models", dataset), data = join(config.state, "surrogate", "datasets", dataset);
-      const read = (p: string) => readFile(p).catch(() => { throw new DomainError("SURROGATE_NOT_TRAINED", `${dataset}: ${p.split("/").slice(-2).join("/")} is missing (tools/hosted_surrogate_train.sh)`, 409); });
+      const model = join(config.state, "surrogate", "models", modelId), data = (d: string) => join(config.state, "surrogate", "datasets", d);
+      const read = (p: string) => readFile(p).catch(() => { throw new DomainError("SURROGATE_NOT_TRAINED", `${modelId}: ${p.split("/").slice(-2).join("/")} is missing (tools/hosted_surrogate_train.sh)`, 409); });
+      const bench0 = JSON.parse((await read(join(model, "benchmark.json"))).toString()) as { datasets?: string[] };
+      const datasets = bench0.datasets?.length ? bench0.datasets : [dataset];
+      if (datasets[0] !== dataset) throw new DomainError("SURROGATE_PROVENANCE", `the primary dataset of ${modelId} is ${datasets[0]}, not ${dataset}`, 409);
       const files: Record<string, Buffer> = {
         "surrogate_featurize.py": await native("surrogate_featurize.py"), "surrogate_train.py": await native("surrogate_train.py"),
         "bo-requirements.txt": await native("bo-requirements.txt"), "cadquery-requirements.txt": await native("cadquery-requirements.txt"),
         "weights.pt": await read(join(model, "weights.pt")), "heldout.npz": await read(join(model, "heldout.npz")), "domain.json": await read(join(model, "domain.json")),
-        "training-benchmark.json": await read(join(model, "benchmark.json")), "dataset-manifest.json": await read(join(data, "manifest.json")),
-        "dataset-rows.jsonl": await read(join(data, "rows.jsonl")), "dataset-spec.json": await read(join(data, "spec.json")),
+        "training-benchmark.json": await read(join(model, "benchmark.json")), "dataset-manifest.json": await read(join(data(dataset), "manifest.json")),
+        "dataset-rows.jsonl": await read(join(data(dataset), "rows.jsonl")), "dataset-spec.json": await read(join(data(dataset), "spec.json")),
       };
-      // The chain must hold: rows -> manifest -> weights -> benchmark, trained by exactly the packaged scripts.
+      // Extra datasets ship under their own names, so the primary dataset files keep their meaning (warm start).
+      for (const d of datasets.slice(1)) for (const [n, f] of [["manifest.json", "manifest.json"], ["rows.jsonl", "rows.jsonl"], ["spec.json", "spec.json"]])
+        files[`extra-${d}-${n}`] = await read(join(data(d), f));
+      // The chain must hold: rows -> manifests -> weights -> benchmark, trained by exactly the packaged scripts.
       const bench = JSON.parse(files["training-benchmark.json"].toString()), man = JSON.parse(files["dataset-manifest.json"].toString());
+      const extra = datasets.slice(1).map(d => ({ d, man: JSON.parse(files[`extra-${d}-manifest.json`].toString()), rows: files[`extra-${d}-rows.jsonl`] }));
       const broken = [hash(files["dataset-rows.jsonl"]) !== man.rowsSha256 && "rows.jsonl differs from the dataset manifest",
         bench.rowsSha256 !== man.rowsSha256 && "the model was trained on other rows", hash(files["weights.pt"]) !== bench.weightsSha256 && "weights differ from the training report",
         bench.scripts?.["surrogate_train.py"] !== hash(files["surrogate_train.py"]) && "surrogate_train.py differs from the one that trained",
         bench.scripts?.["surrogate_featurize.py"] !== hash(files["surrogate_featurize.py"]) && "surrogate_featurize.py differs from the one that trained",
-        man.family !== family && `dataset family ${man.family}`].filter(Boolean);
+        man.family !== family && `dataset family ${man.family}`,
+        ...extra.flatMap((e, i) => [hash(e.rows) !== e.man.rowsSha256 && `${e.d}: rows differ from its manifest`,
+          (bench.extraRowsSha256 ?? [])[i] !== e.man.rowsSha256 && `${e.d}: the model was trained on other rows`, e.man.family !== family && `${e.d}: family ${e.man.family}`])].filter(Boolean);
       if (broken.length) throw new DomainError("SURROGATE_PROVENANCE", broken.join("; "), 409);
       const bo = lockVersions(files["bo-requirements.txt"].toString()), cq = lockVersions(files["cadquery-requirements.txt"].toString());
       const manifest: ArtifactManifest = {
@@ -230,11 +266,13 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
       if (e.r.exitCode !== 0) throw new DomainError("BENCHMARK", "held-out evaluation failed", 500);
       const ev = Evaluation.parse(lastJson(e.r.stdout));
       const bench = JSON.parse(ctx.files["training-benchmark.json"].toString());
-      const failed = surrogateGate(ev);
-      const reproduces = JSON.stringify(ev.metrics) === JSON.stringify(bench.surrogate) && ev.weightsSha256 === bench.weightsSha256;
+      const datasets: string[] = bench.datasets?.length ? bench.datasets : [dataset];
+      const failed = acceptanceGate(ev, datasets);
+      const reproduces = JSON.stringify(ev.metrics) === JSON.stringify(bench.surrogate) && ev.weightsSha256 === bench.weightsSha256
+        && JSON.stringify(ev.subsets ?? null) === JSON.stringify(bench.subsets ?? null);
       if (!reproduces) failed.push("the shipped weights do not reproduce the training report on the held-out rows");
-      return { passed: failed.length === 0, evidence: { schema: "pai-surrogate-acceptance-1", family, dataset, heldOut: ev.heldOut, gate: SURROGATE_GATE, failed,
-        metrics: ev.metrics, conformal90Coverage: ev.conformal90Coverage, reproducesTrainingReport: reproduces,
+      return { passed: failed.length === 0, evidence: { schema: "pai-surrogate-acceptance-1", family, dataset, datasets, heldOut: ev.heldOut, gate: SURROGATE_GATE,
+        ...(datasets.length > 1 ? { offRecipeGate: OFFRECIPE_GATE, subsets: ev.subsets } : {}), failed, metrics: ev.metrics, conformal90Coverage: ev.conformal90Coverage, reproducesTrainingReport: reproduces,
         gpBaselineOnParameters: bench.gpBaseline, selection: bench.selection, inferenceMs: bench.inferenceMs, receipt: e.receipt,
         scope: "Held-out designs of the same synthetic family and load case; CalculiX labels. Not physical validation, not a solver." } };
     },

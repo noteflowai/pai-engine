@@ -25,7 +25,7 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
   const state = await mkdtemp(join(tmpdir(), "pai-surrogate-art-"));
   const config = { ...configuration(), state };
   const store = new Store(join(state, "w.sqlite"));
-  const data = join(state, "surrogate", "datasets", "fea-bracket-v1"), model = join(state, "surrogate", "models", "fea-bracket-v1");
+  const data = join(state, "surrogate", "datasets", "fea-bracket-v1"), model = join(state, "surrogate", "models", "fea-bracket-v2");
   const run = (py: string, args: string[]) => execFileSync(py, ["-I", "-W", "ignore", ...args], { encoding: "utf8", timeout: 900_000 });
   try {
     await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.0" }, "t"), /SURROGATE_NOT_TRAINED|missing/);
@@ -110,4 +110,42 @@ test("screening ranks model-written variants conservatively: geometry failures l
   assert.deepEqual(r.map(v => [v.stepId, v.class]), [["light-pass", "likely-pass"], ["heavy-pass", "likely-pass"], ["odd", "unknown"], ["fail", "likely-fail"], ["wall", "geometry-fail"], ["broken", "geometry-fail"]]);
   assert.deepEqual(r.filter(v => v.chosen).map(v => v.stepId), ["light-pass"]);
   assert.equal(rankVariants([{ stepId: "x", codeSha256: "x", geometry: { ok: false }, prediction: null }], DEFAULT_STRUCTURAL)[0].chosen, false, "nothing is chosen when all fail geometry");
+});
+
+test("off-recipe data: measured from sandboxed code, trained together, benchmarked and gated per dataset", { skip: PY && CQ && process.env.PAI_CCX ? false : "needs the physics and CadQuery toolchains" }, async () => {
+  const state = await mkdtemp(join(tmpdir(), "pai-offrecipe-"));
+  const config = { ...configuration(), state };
+  const store = new Store(join(state, "w.sqlite"));
+  const ds = join(state, "surrogate", "datasets"), model = join(state, "surrogate", "models", "fea-bracket-v2");
+  const run = (py: string, args: string[]) => execFileSync(py, ["-I", "-W", "ignore", ...args], { encoding: "utf8", timeout: 900_000 });
+  try {
+    run(PY!, ["native/surrogate_dataset.py", "--spec", "native/surrogate-datasets/fea-bracket-v1.json", "--output", join(ds, "fea-bracket-v1"), "--backend", "local", "--limit", "14", "--concurrency", "3"]);
+    execFileSync(process.execPath, ["--env-file-if-exists=.state/demo.env", "--import", "tsx", "scripts/surrogate-offrecipe-dataset.ts", "native/surrogate-datasets/fea-bracket-offrecipe-v1.json",
+      join(ds, "fea-bracket-offrecipe-v1"), "--limit", "10", "--concurrency", "3"], { encoding: "utf8", timeout: 900_000, env: { ...process.env, PAI_STATE: state } });
+    const man = JSON.parse(await readFile(join(ds, "fea-bracket-offrecipe-v1", "manifest.json"), "utf8"));
+    assert.equal(man.source, "code"); assert.equal(man.attempted, 10); assert.ok(man.measured >= 6, JSON.stringify(man));
+    run(PY!, ["native/surrogate_build_model.py", "--spec", "native/surrogate-models/fea-bracket-v2.json", "--datasets", ds, "--output", model, "--cadquery", CQ!]);
+    const bench = JSON.parse(await readFile(join(model, "benchmark.json"), "utf8"));
+    assert.deepEqual(bench.datasets, ["fea-bracket-v1", "fea-bracket-offrecipe-v1"]); assert.deepEqual(bench.extraRowsSha256, [man.rowsSha256]);
+    const a = await createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "1.1.0" }, "tester");
+    assert.ok(a.files["extra-fea-bracket-offrecipe-v1-rows.jsonl"], "off-recipe rows ship with the version");
+    const v = await validateArtifact(store, config, a.id, "tester");
+    const ev = v.validation!.evidence as { datasets: string[]; failed: string[]; reproducesTrainingReport: boolean };
+    assert.deepEqual(ev.datasets, bench.datasets); assert.equal(ev.reproducesTrainingReport, true);
+    assert.ok(ev.failed.some(f => f.startsWith("fea-bracket-offrecipe-v1")), JSON.stringify(v.validation!.evidence).slice(0, 1500));
+    assert.equal(v.state, "draft");
+  } finally { closeAllWorkers(); store.close(); await rm(state, { recursive: true, force: true }); }
+});
+
+test("acceptance gate with several datasets: each needs its own held-out benchmark; no fallback to the overall numbers", async () => {
+  const { acceptanceGate } = await import("../src/artifacts/surrogate.js");
+  const good = { metrics: { deflectionMm: { spearman: 0.99, medianRelError: 0.02 }, stressMPa: { spearman: 0.99, medianRelError: 0.03 }, mass: { spearman: 0.999, medianRelError: 0.003 } },
+    conformal90Coverage: { deflectionMm: 0.9, stressMPa: 0.9, mass: 0.95 } };
+  assert.deepEqual(acceptanceGate(good, ["a"]), []);
+  assert.ok(acceptanceGate(good, ["a", "b"]).length >= 2, "no subsets: both datasets fail");
+  assert.deepEqual(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...good }, b: { heldOut: 25, ...good } } }, ["a", "b"]), []);
+  assert.deepEqual(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...good }, b: { heldOut: 12, ...good } } }, ["a", "b"]), ["b: 12 held-out rows < 20"]);
+  const offOk = { ...good, metrics: { ...good.metrics, deflectionMm: { spearman: 0.85, medianRelError: 0.08 } } };
+  assert.deepEqual(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...good }, b: { heldOut: 30, ...offOk } } }, ["a", "b"]), [], "the off-recipe gate is the looser one");
+  assert.equal(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...offOk }, b: { heldOut: 30, ...good } } }, ["a", "b"]).length, 1, "the recipe gate stays strict");
 });
