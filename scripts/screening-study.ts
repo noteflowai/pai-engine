@@ -32,7 +32,11 @@ try {
   // The released artifact itself: its stored records copied read-only from the live database (an immutable version
   // cannot be rebuilt from a newer release's sources), then its own acceptance re-run on the copy.
   const live = new DatabaseSync(process.env.PAI_LIVE_DB ?? "/var/lib/pai/data/state/workbench.sqlite", { readOnly: true });
-  const REF = process.env.STUDY_ARTIFACT ?? "structural-surrogate-bracket@1.0.0";
+  // The newest released bracket surrogate (the one the product uses), unless STUDY_ARTIFACT names a version.
+  const v = (id: string) => id.split("@")[1].split(".").map(Number), newer = (a: string, b: string) => { const x = v(a), y = v(b); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
+  const releasedIds = (live.prepare("SELECT id, body FROM documents WHERE kind='artifact' AND id LIKE 'structural-surrogate-bracket@%'").all() as { id: string; body: string }[])
+    .filter(r => JSON.parse(r.body).state === "released").map(r => r.id).sort(newer);
+  const REF = process.env.STUDY_ARTIFACT ?? releasedIds.at(-1)!;
   const row = live.prepare("SELECT body FROM documents WHERE kind='artifact' AND id=?").get(REF) as { body: string } | undefined;
   assert.ok(row, `${REF} is not in the live store`);
   const released = JSON.parse(row.body);
@@ -96,7 +100,7 @@ try {
     seconds: { screeningPerVariant: Math.round(groups.reduce((x, g) => x + g.screenSeconds, 0) / all.length * 10) / 10, reviewPerVariant: Math.round(all.reduce((x, t) => x + t.reviewSeconds, 0) / all.length * 10) / 10 },
   };
   await mkdir(join(state, "evidence"), { recursive: true });
-  await writeFile(join(state, "evidence", "screening-study.json"), JSON.stringify({ schema: "pai-screening-study-1", result: "completed", seed: SEED, artifact: getArtifact(store, a.id).digest,
+  await writeFile(join(state, "evidence", "screening-study.json"), JSON.stringify({ schema: "pai-screening-study-1", result: "completed", seed: SEED, artifactId: a.id, artifact: getArtifact(store, a.id).digest,
     perGroup: PER, requirements, summary, groups, rule: "ground truth = native review of every variant; the screening never saw those results", synthetic: true }, null, 1) + "\n");
   console.log(JSON.stringify(summary));
 } finally { closeAllWorkers(); await app.close(); }
