@@ -1,0 +1,179 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-pillow@1.1.0",
+ "digest": "1fad62e4ad6358f82e1f642c4a06dbed551def6775d1d6702b8d15e3923ed9c5",
+ "state": "released",
+ "supersedes": "structural-surrogate-pillow@1.0.0 (deprecated, kept)",
+ "datasets": {
+  "fea-pillow-v1": {
+   "source": "recipe, Sobol, AWS Batch",
+   "measured": 254
+  },
+  "fea-pillow-offrecipe-v1": {
+   "source": "template-perturbation code (column wall, gusset, base, depth, crown), sandboxed, CalculiX fine mesh on the host",
+   "planned": 160,
+   "measured": 159,
+   "failed": 1,
+   "failure": "index 111: Gmsh mesh optimisation (ScaledJac) did not converge; kept as failed, not remeasured"
+  }
+ },
+ "acceptance": {
+  "recipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "offRecipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8,
+   "minHeldOut": 20
+  },
+  "failed": [],
+  "subsets": {
+   "fea-pillow-v1": {
+    "heldOut": 42,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.994,
+      "medianRelError": 0.029051578076247943,
+      "p90RelError": 0.0640659063421803,
+      "maxRelError": 0.12162835812809138
+     },
+     "stressMPa": {
+      "spearman": 0.9876,
+      "medianRelError": 0.017540779699500963,
+      "p90RelError": 0.042864918503945054,
+      "maxRelError": 0.08761674282878014
+     },
+     "mass": {
+      "spearman": 0.9998,
+      "medianRelError": 0.0014562526809907797,
+      "p90RelError": 0.003812557902217867,
+      "maxRelError": 0.008523593995578938
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 1,
+     "mass": 1
+    }
+   },
+   "fea-pillow-offrecipe-v1": {
+    "heldOut": 29,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9705,
+      "medianRelError": 0.03307308006285964,
+      "p90RelError": 0.08716718587741036,
+      "maxRelError": 0.11187215462326074
+     },
+     "stressMPa": {
+      "spearman": 0.9378,
+      "medianRelError": 0.06252299885992602,
+      "p90RelError": 0.13423376627344286,
+      "maxRelError": 0.14684165247904674
+     },
+     "mass": {
+      "spearman": 0.9936,
+      "medianRelError": 0.004543765033920625,
+      "p90RelError": 0.012089181500867064,
+      "maxRelError": 0.015236933337107907
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 1,
+     "mass": 0.9310344827586207
+    }
+   }
+  },
+  "overall": {
+   "deflectionMm": {
+    "spearman": 0.9869,
+    "medianRelError": 0.029121318688418024,
+    "p90RelError": 0.07364519051605314,
+    "maxRelError": 0.12162835812809138
+   },
+   "stressMPa": {
+    "spearman": 0.9721,
+    "medianRelError": 0.028330933749058977,
+    "p90RelError": 0.10527887346846289,
+    "maxRelError": 0.14684165247904674
+   },
+   "mass": {
+    "spearman": 0.9988,
+    "medianRelError": 0.0023119775834347517,
+    "p90RelError": 0.006776387710609847,
+    "maxRelError": 0.015236933337107907
+   }
+  },
+  "reproducesTrainingReport": true
+ },
+ "previousVersionOnSameHeldOut": {
+  "artifact": "structural-surrogate-pillow@1.0.0",
+  "weightsSha256Prefix": "5f7ce7d28410d9ab",
+  "fea-pillow-v1": {
+   "heldOut": 42,
+   "medianRelError": {
+    "deflectionMm": 0.0122,
+    "stressMPa": 0.0187,
+    "mass": 0.0021
+   }
+  },
+  "fea-pillow-offrecipe-v1": {
+   "heldOut": 29,
+   "outsideDeclaredDomain": 26,
+   "medianRelError": {
+    "deflectionMm": 1.0,
+    "stressMPa": "diverged",
+    "mass": "diverged"
+   },
+   "conformal90Coverage": 0.0
+  },
+  "cause": "two shape descriptors (extentY, extentZ) are constant in the recipe data and were scaled by std + 1e-6; fixed for new trainings in 0.21.1 (#110)"
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9985,
+   "medianRelError": 0.007029371162238543,
+   "p90RelError": 0.01500107667991403,
+   "maxRelError": 0.01759108506847086
+  },
+  "stressMPa": {
+   "spearman": 0.9932,
+   "medianRelError": 0.010774354211511593,
+   "p90RelError": 0.03754474254239618,
+   "maxRelError": 0.05007404162773094
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 4.9297087129243354e-05,
+   "p90RelError": 0.00016262054888994723,
+   "maxRelError": 0.0002735965227905605
+  }
+ },
+ "authority": "suggestion",
+ "physicalValidation": false
+}
