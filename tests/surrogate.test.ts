@@ -68,3 +68,10 @@ test("pillow family trains end to end (constant recipe values in the GP baseline
     assert.ok(b.weightsSha256 && b.gp, JSON.stringify(b));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("trainer: a shape descriptor that is constant in training is centred, not scaled by its ~0 spread", { skip: PY ? false : "needs the physics toolchain" }, () => {
+  const out = execFileSync(PY!, ["-I", "-c", `import sys; sys.path.insert(0, "native"); import torch, surrogate_train as s
+g = torch.tensor([[1.0, 0.36], [2.0, 0.36], [3.0, 0.36]]); mu, sd = s.global_scale(g)
+print(round(float(sd[0]), 4), float(sd[1]), round(float((0.26 - mu[1]) / sd[1]), 4))`], { encoding: "utf8" }).trim();
+  assert.equal(out, "1.0 1.0 -0.1", "varying descriptor scaled by its (sample) spread; constant one only centred");
+});
