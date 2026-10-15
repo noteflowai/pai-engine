@@ -1,0 +1,50 @@
+{
+ "schema": "pai-surrogate-dataset-spec-1",
+ "id": "fea-pillow-offrecipe-v1",
+ "family": "pillow-block",
+ "purpose": "Off-recipe training and held-out data for the pillow-block surrogate: model-written-style CadQuery variants of the template that change what the recipe keeps fixed (column wall around the seat, gusset size) together with base length, depth and thickness, housing depth and crown; sandboxed, measured by CalculiX (fine mesh, bearing cosine load, seat distortion) on the workbench host. Shaft axis stays at the required 30 mm; crown <= 12 keeps the part inside the 60 mm envelope.",
+ "design": {
+  "method": "template-perturbation",
+  "seed": 20261016,
+  "n": 160,
+  "ranges": {
+   "W": [
+    96,
+    118
+   ],
+   "BD": [
+    26,
+    40
+   ],
+   "T": [
+    6,
+    14
+   ],
+   "D": [
+    14,
+    26
+   ],
+   "CROWN": [
+    3,
+    12
+   ],
+   "GUSSET": [
+    2,
+    10
+   ],
+   "WALL": [
+    5,
+    12
+   ]
+  },
+  "replace": {
+   "W": "W, BD, T = 108.0, 36.0, 10.0 => W, BD, T = {W}, {BD}, {T}",
+   "D": "D = 20.0  => D = {D} ",
+   "CROWN": "CROWN = 8.0  => CROWN = {CROWN} ",
+   "GUSSET": "GUSSET = 5.0\n => GUSSET = {GUSSET}\n",
+   "WALL": "block_w = SEAT + 18.0 => block_w = SEAT + 2 * {WALL}"
+  }
+ },
+ "source": "code",
+ "synthetic": true
+}

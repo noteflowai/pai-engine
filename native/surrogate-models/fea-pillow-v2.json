@@ -1,0 +1,7 @@
+{
+ "schema": "pai-surrogate-model-spec-1",
+ "id": "fea-pillow-v2",
+ "family": "pillow-block",
+ "datasets": ["fea-pillow-v1", "fea-pillow-offrecipe-v1"],
+ "purpose": "Pillow-block surrogate trained on recipe parts (Sobol, AWS Batch) and off-recipe model-written-style parts (sandboxed code, workbench host); benchmarked per dataset."
+}

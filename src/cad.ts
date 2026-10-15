@@ -260,23 +260,26 @@ export async function screenGeneratedPart(config: Config, family: CadFamily, cod
  * verdict; the caller stores the files with their digests. Bracket family only (the load is placed from the declared
  * motor axis, which generated code reports through the sandbox).
  */
-export async function measureGeneratedPart(config: Config, code: string, requirements: CadRequirements, directory: string) {
-  const g = await screenGeneratedPart(config, "nema17-bracket", code, requirements, directory);
+export async function measureGeneratedPart(config: Config, code: string, requirements: CadRequirements, directory: string, family: CadFamily = "nema17-bracket") {
+  const g = await screenGeneratedPart(config, family, code, requirements, directory);
   if (!g.ok) return g;
-  const s = requirements.structural!;
+  const s = requirements.structural!, pillow = family === "pillow-block";
   const target = join(directory, "part");
-  if (!(g.motorAxisZ! > 0)) return { ok: false as const, codeSha256: g.codeSha256, reason: "the part declares no motor axis height" };
+  // The bracket load sits on the motor bores, placed from the declared axis; the pillow block finds its seat by cylinder fits.
+  if (!pillow && !(g.motorAxisZ! > 0)) return { ok: false as const, codeSha256: g.codeSha256, reason: "the part declares no motor axis height" };
   const input = join(directory, "fea-input.json");
-  await writePrivate(input, JSON.stringify({ step: g.step, parameters: { motorAxisHeight: g.motorAxisZ }, ccx: enginePath(config, "physics", config.ccx!), requirements: s, meshes: "fine-only",
-    load: { forceN: s.forceN, leverMm: s.leverMm, description: "radial pulley force, statically equivalent on the four M3 bores" } }));
-  const r = await runEngine(config, { engine: "physics", program: config.physicsPython!, args: ["-I", join(config.repository, "native", "fea_bracket.py"), "--input", input, "--output", target],
+  await writePrivate(input, JSON.stringify({ step: g.step, parameters: pillow ? {} : { motorAxisHeight: g.motorAxisZ }, ccx: enginePath(config, "physics", config.ccx!), requirements: s,
+    meshes: "fine-only", load: { forceN: s.forceN, leverMm: s.leverMm, ...(pillow ? { direction: s.direction } : {}),
+      description: pillow ? `radial bearing load ${s.direction}, cosine pressure over the loaded half of the seat; M8 bores fixed` : "radial pulley force, statically equivalent on the four M3 bores" } }));
+  const r = await runEngine(config, { engine: "physics", program: config.physicsPython!, args: ["-I", join(config.repository, "native", FAMILY_FEA[family].script), "--input", input, "--output", target],
     cwd: config.repository, mounts: { read: [input], write: [target] }, timeoutMs: 900_000 });
   if (r.exitCode !== 0) return { ok: false as const, codeSha256: g.codeSha256, reason: `fea: ${r.stderr.trim().split("\n").at(-1)?.slice(0, 200) ?? r.exitCode}` };
   // Fine mesh only: no two-level convergence block (as in the Batch dataset jobs), so the review schema does not apply.
   const fea = z.object({ schema: z.literal("pai-fea-1"), checks: z.array(z.object({ id: z.enum(FEA_CHECKS), observed: z.number() }).passthrough()) }).passthrough()
     .parse(JSON.parse(await readFile(join(target, "fea.json"), "utf8")));
-  const obs = (id: string) => fea.checks.find(c => c.id === id)!.observed;
-  return { ...g, fea: join(target, "fea.json"), checksFile: join(target, "checks.json"), deflectionMm: obs("max-deflection"), stressMPa: obs("max-stress"), runtime: r.runtime };
+  const obs = (id: string) => fea.checks.find(c => c.id === id)?.observed;
+  return { ...g, fea: join(target, "fea.json"), checksFile: join(target, "checks.json"), deflectionMm: obs("max-deflection")!, stressMPa: obs("max-stress")!,
+    ...(pillow ? { boreDistortionMm: obs("bore-distortion") } : {}), runtime: r.runtime };
 }
 
 /**

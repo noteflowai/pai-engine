@@ -149,3 +149,10 @@ test("acceptance gate with several datasets: each needs its own held-out benchma
   assert.deepEqual(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...good }, b: { heldOut: 30, ...offOk } } }, ["a", "b"]), [], "the off-recipe gate is the looser one");
   assert.equal(acceptanceGate({ ...good, subsets: { a: { heldOut: 40, ...offOk }, b: { heldOut: 30, ...good } } }, ["a", "b"]).length, 1, "the recipe gate stays strict");
 });
+
+test("off-recipe plans are reproducible: the released bracket plan byte for byte, and every rule applies", () => {
+  const plan = (spec: string) => JSON.parse(execFileSync(process.execPath, ["--import", "tsx", "scripts/surrogate-offrecipe-dataset.ts", spec, "/nonexistent", "--plan"], { encoding: "utf8" }).trim().split("\n").at(-1)!);
+  // Pinned from the hosted fea-bracket-offrecipe-v1 manifest (structural-surrogate-bracket@1.1.0 was trained on it).
+  assert.equal(plan("native/surrogate-datasets/fea-bracket-offrecipe-v1.json").planSha256, "e1d31ee950f909c3d7ecff924e23286f17f9d237970da4246c87cdc5d891457a");
+  assert.match(plan("native/surrogate-datasets/fea-pillow-offrecipe-v1.json").codeSha256, /^[0-9a-f]{64}$/);
+});
