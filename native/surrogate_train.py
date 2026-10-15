@@ -71,6 +71,15 @@ def split(index, tags=None):
 TAGS = ["primary"]
 
 
+def global_scale(g):
+    """Centre and scale the shape descriptors. A descriptor that does not vary in the training rows (e.g. the
+    footprint depth of a recipe family) is only centred: scaling it by its ~0 spread would turn any part that differs
+    in it into an input millions of standard deviations away (structural-surrogate-pillow@1.0.0 diverged that way on
+    off-recipe parts). Such parts stay outside the declared domain."""
+    mu, sd = g.mean(0), g.std(0)
+    return mu, torch.where(sd > 1e-3 * (mu.abs() + 1e-3), sd, torch.ones_like(sd))
+
+
 def spearman(a, b):
     from scipy.stats import spearmanr
     return round(float(spearmanr(a, b).statistic), 4) if len(a) > 2 else None
@@ -102,7 +111,7 @@ def train(a):
     z = encode(y); mu, sd = z[tr].mean(0), z[tr].std(0) + 1e-9
     zt = torch.tensor((z - mu) / sd, dtype=torch.float32); xt = torch.tensor(x)
     gt = torch.tensor(G)
-    gmu, gsd = gt[tr].mean(0), gt[tr].std(0) + 1e-6
+    gmu, gsd = global_scale(gt[tr])
     gt = (gt - gmu) / gsd
 
     def fit(cfg, rows, n_members, epochs):
