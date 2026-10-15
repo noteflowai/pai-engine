@@ -162,7 +162,7 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
   const short = family === "pillow-block" ? "pillow" : "bracket";
   // The model directory a new version is built from (native/surrogate-models/<id>.json lists its datasets; a model
   // without a spec is trained on the dataset of the same name). Released versions keep their own stored bytes.
-  const id = `structural-surrogate-${short}`, modelId = family === "pillow-block" ? "fea-pillow-v1" : "fea-bracket-v2", dataset = `fea-${short}-v1`;
+  const id = `structural-surrogate-${short}`, modelId = `fea-${short}-v2`, dataset = `fea-${short}-v1`;
   const title = family === "pillow-block" ? "轴承座结构代理模型：由几何预测受载失圆前的挠度、应力与质量" : "电机支架结构代理模型：由几何预测挠度、应力与质量";
   return {
     id,
