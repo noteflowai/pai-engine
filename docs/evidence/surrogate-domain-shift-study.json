@@ -1,0 +1,469 @@
+{
+ "schema": "pai-surrogate-domain-shift-study-1",
+ "site": "https://pai.oneai.host",
+ "date": "2026-10-16",
+ "preregistration": {
+  "commit": "b6273ac014370066279e13ae17bdb1fd46998dff",
+  "committedAt": "2026-10-16T18:04:54+08:00",
+  "script": "native/surrogate_domain.py",
+  "scriptSha256Prefix": "71b2fbea3e03ef28",
+  "note": "detector and SHIFT_GATE committed and pushed before any run below; every run used exactly that script"
+ },
+ "runs": {
+  "bracket-1.0.0": {
+   "model": "structural-surrogate-bracket@1.0.0 (released, now deprecated; recipe data only)",
+   "shiftSet": "fea-bracket-offrecipe-v1 (160 parts it never saw)",
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "da31b2e35373a5032ddde2fd04017f1673404c90a1303fa37f09c7c0d343380c",
+   "featuresSha256": [
+    "7fa9fcc009fc060f5650b5a28c2f01ef4ead6cce3612ee68b059afe974464be1"
+   ],
+   "trainRows": 205,
+   "datasets": [
+    "primary"
+   ],
+   "heldOut": {
+    "primary": {
+     "rows": 40,
+     "flagged": 0.075
+    }
+   },
+   "failed": [],
+   "shift": {
+    "dataset": "fea-bracket-offrecipe-v1",
+    "rows": 160,
+    "wrong": 160,
+    "flagged": 151,
+    "wrongUnflagged": 9,
+    "leak": 0.05625,
+    "boxOnly": {
+     "flagged": 114,
+     "wrongUnflagged": 46,
+     "leak": 0.2875
+    },
+    "correctFlagged": 0,
+    "correct": 0,
+    "byCheck": {
+     "range": 114,
+     "constant": 151,
+     "Mahalanobis": 66,
+     "embedding": 93
+    },
+    "medianRelError": {
+     "deflectionMm": 2.563813347479863e+208,
+     "stressMPa": 6.779036785642461e+201,
+     "mass": 70.73679105006116
+    },
+    "unflaggedWrong": [
+     {
+      "index": 3,
+      "relError": [
+       60.961,
+       98.34,
+       0.888
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.9392,
+      "embeddingRatio": 0.8018
+     },
+     {
+      "index": 59,
+      "relError": [
+       7812909538312996.0,
+       2424295946824.781,
+       8.471
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 0.9668,
+      "embeddingRatio": 0.8088
+     },
+     {
+      "index": 64,
+      "relError": [
+       1.7274161375668446e+21,
+       3.454904437444859e+16,
+       11.946
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 3.2296,
+      "embeddingRatio": 0.8399
+     },
+     {
+      "index": 103,
+      "relError": [
+       5359.86,
+       14783.873,
+       1.352
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.7159,
+      "embeddingRatio": 0.8392
+     },
+     {
+      "index": 106,
+      "relError": [
+       5033975366.99,
+       40622691892.349,
+       2.119
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 0.9148,
+      "embeddingRatio": 0.8043
+     },
+     {
+      "index": 109,
+      "relError": [
+       2.539315159205375e+27,
+       3.221992292960609e+21,
+       15.37
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.8672,
+      "embeddingRatio": 0.8243
+     },
+     {
+      "index": 111,
+      "relError": [
+       1455492.528,
+       6865603.66,
+       1.077
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 1.3395,
+      "embeddingRatio": 0.783
+     },
+     {
+      "index": 118,
+      "relError": [
+       225.4,
+       342.742,
+       0.884
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 0.6294,
+      "embeddingRatio": 0.7581
+     },
+     {
+      "index": 136,
+      "relError": [
+       37.358,
+       30.398,
+       0.67
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 1.7957,
+      "embeddingRatio": 0.8306
+     }
+    ]
+   }
+  },
+  "pillow-1.0.0": {
+   "model": "structural-surrogate-pillow@1.0.0 (released, now deprecated; recipe data only)",
+   "shiftSet": "fea-pillow-offrecipe-v1 (159 parts)",
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "5f7ce7d28410d9ab227add7ed1316674b993293039d8b1212beedd09a92bc662",
+   "featuresSha256": [
+    "1fedbdcf32c6c6ea2ed8b92c2726d423b846e28a2ce480caeb9552ecb9c97e06"
+   ],
+   "trainRows": 212,
+   "datasets": [
+    "primary"
+   ],
+   "heldOut": {
+    "primary": {
+     "rows": 42,
+     "flagged": 0.023809523809523808
+    }
+   },
+   "failed": [],
+   "shift": {
+    "dataset": "fea-pillow-offrecipe-v1",
+    "rows": 159,
+    "wrong": 159,
+    "flagged": 159,
+    "wrongUnflagged": 0,
+    "leak": 0.0,
+    "boxOnly": {
+     "flagged": 138,
+     "wrongUnflagged": 21,
+     "leak": 0.1320754716981132
+    },
+    "correctFlagged": 0,
+    "correct": 0,
+    "byCheck": {
+     "range": 138,
+     "constant": 157,
+     "Mahalanobis": 112,
+     "embedding": 154
+    },
+    "medianRelError": {
+     "deflectionMm": 1.0,
+     "stressMPa": 136260218638195.4,
+     "mass": 69.76091860165012
+    },
+    "unflaggedWrong": []
+   }
+  },
+  "bracket-recipe-fixed": {
+   "model": "recipe data only, trained with the 0.21.1 trainer (constant descriptors centred, not scaled); not released",
+   "shiftSet": "fea-bracket-offrecipe-v1",
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "c2317a6c088b892a90365879c434c2ec689b58481c2f4346cf2f53754ec5061d",
+   "featuresSha256": [
+    "7fa9fcc009fc060f5650b5a28c2f01ef4ead6cce3612ee68b059afe974464be1"
+   ],
+   "trainRows": 205,
+   "datasets": [
+    "primary"
+   ],
+   "heldOut": {
+    "primary": {
+     "rows": 40,
+     "flagged": 0.05
+    }
+   },
+   "failed": [],
+   "shift": {
+    "dataset": "fea-bracket-offrecipe-v1",
+    "rows": 160,
+    "wrong": 136,
+    "flagged": 151,
+    "wrongUnflagged": 5,
+    "leak": 0.03676470588235294,
+    "boxOnly": {
+     "flagged": 114,
+     "wrongUnflagged": 30,
+     "leak": 0.22058823529411764
+    },
+    "correctFlagged": 20,
+    "correct": 24,
+    "byCheck": {
+     "range": 114,
+     "constant": 151,
+     "Mahalanobis": 66,
+     "embedding": 123
+    },
+    "medianRelError": {
+     "deflectionMm": 0.20037840476534519,
+     "stressMPa": 0.11555128723955502,
+     "mass": 0.01939523186295295
+    },
+    "unflaggedWrong": [
+     {
+      "index": 3,
+      "relError": [
+       0.23,
+       0.011,
+       0.027
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.9392,
+      "embeddingRatio": 0.7814
+     },
+     {
+      "index": 64,
+      "relError": [
+       0.116,
+       0.004,
+       0.039
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 3.2296,
+      "embeddingRatio": 0.8372
+     },
+     {
+      "index": 103,
+      "relError": [
+       0.306,
+       0.014,
+       0.027
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.7159,
+      "embeddingRatio": 0.8225
+     },
+     {
+      "index": 109,
+      "relError": [
+       0.277,
+       0.057,
+       0.023
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 2.8672,
+      "embeddingRatio": 0.8073
+     },
+     {
+      "index": 136,
+      "relError": [
+       0.367,
+       0.063,
+       0.014
+      ],
+      "flagged": false,
+      "reasons": [],
+      "mahalanobis": 1.7957,
+      "embeddingRatio": 0.8511
+     }
+    ]
+   }
+  },
+  "pillow-recipe-fixed": {
+   "model": "recipe data only, 0.21.1 trainer; not released",
+   "shiftSet": "fea-pillow-offrecipe-v1",
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "a2b66f0f1733b6a7aa08eb06cc1d2e00742421e52d3f448bd0f68563a76719a6",
+   "featuresSha256": [
+    "1fedbdcf32c6c6ea2ed8b92c2726d423b846e28a2ce480caeb9552ecb9c97e06"
+   ],
+   "trainRows": 212,
+   "datasets": [
+    "primary"
+   ],
+   "heldOut": {
+    "primary": {
+     "rows": 42,
+     "flagged": 0.0
+    }
+   },
+   "failed": [],
+   "shift": {
+    "dataset": "fea-pillow-offrecipe-v1",
+    "rows": 159,
+    "wrong": 133,
+    "flagged": 159,
+    "wrongUnflagged": 0,
+    "leak": 0.0,
+    "boxOnly": {
+     "flagged": 138,
+     "wrongUnflagged": 14,
+     "leak": 0.10526315789473684
+    },
+    "correctFlagged": 26,
+    "correct": 26,
+    "byCheck": {
+     "range": 138,
+     "constant": 157,
+     "Mahalanobis": 112,
+     "embedding": 159
+    },
+    "medianRelError": {
+     "deflectionMm": 0.1766510521742666,
+     "stressMPa": 0.12129619821909819,
+     "mass": 0.019469050921212695
+    },
+    "unflaggedWrong": []
+   }
+  },
+  "bracket-1.1.0": {
+   "model": "structural-surrogate-bracket@1.1.0 (recipe + off-recipe)",
+   "shiftSet": null,
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "0463a569b0701620e5b7a33ff42baa0136fad9e70ee4c1d7d9f4687708ad4111",
+   "featuresSha256": [
+    "7f00bcda7215bbf5ed3ea14f357ab0283dbf30cbe7134023ce38efcf7c0a75e9",
+    "25804ef6846ec94e707b8474ac8429eef1c043ef51344e3f581e1502e0287169"
+   ],
+   "trainRows": 333,
+   "datasets": [
+    "fea-bracket-v1",
+    "fea-bracket-offrecipe-v1"
+   ],
+   "heldOut": {
+    "fea-bracket-v1": {
+     "rows": 40,
+     "flagged": 0.0
+    },
+    "fea-bracket-offrecipe-v1": {
+     "rows": 32,
+     "flagged": 0.03125
+    }
+   },
+   "failed": []
+  },
+  "pillow-1.1.0": {
+   "model": "structural-surrogate-pillow@1.1.0 (recipe + off-recipe)",
+   "shiftSet": null,
+   "schema": "pai-surrogate-shift-test-1",
+   "gate": {
+    "maxLeak": 0.1,
+    "wrongRelError": 0.1,
+    "minWrong": 10,
+    "maxFalseAlarm": 0.1
+   },
+   "weightsSha256": "96e5cab23a9ccd31b9cf3119f19cfa5597f15c007b39d52a6582ef8bf145b7b6",
+   "featuresSha256": [
+    "6791169c31b59e87d2184ecd05a0e05105cb39f15ecc887448c2c7d757e264d5",
+    "c12f0944f8b6803c4ac2bd5ce4149229bbb570e7496c87a81f6e790f5b1f6ece"
+   ],
+   "trainRows": 342,
+   "datasets": [
+    "fea-pillow-v1",
+    "fea-pillow-offrecipe-v1"
+   ],
+   "heldOut": {
+    "fea-pillow-v1": {
+     "rows": 42,
+     "flagged": 0.0
+    },
+    "fea-pillow-offrecipe-v1": {
+     "rows": 29,
+     "flagged": 0.034482758620689655
+    }
+   },
+   "failed": []
+  }
+ },
+ "reading": [
+  "Released 1.0.0 models: every off-recipe part was predicted wrongly (constant-descriptor scaling bug, fixed in 0.21.1); the old range check let 46 of 160 (bracket) and 21 of 159 (pillow) through, the new detector 9 and 0.",
+  "Healthy recipe-only models (the realistic case): 136 / 133 of the off-recipe parts have a deflection or stress error above 10 %; unflagged: 5 (3.7 %) and 0, against 30 (22 %) and 14 (10.5 %) with the range check alone. The 5 leaks are deflection errors of 12-37 % with small stress errors.",
+  "False alarms on the models' own recipe held-out parts: 5 % and 0 %; on 1.1.0's held-out subsets 0-3.4 %.",
+  "The detector is conservative: on a recipe-only model it also flags 20 of 24 (bracket) and 26 of 26 (pillow) off-recipe parts whose prediction happened to be right. Those rank as unknown and go to the solver; nothing is decided by the surrogate.",
+  "Synthetic parts and simulated (CalculiX) labels; two families. Indicative, not a general guarantee."
+ ],
+ "authority": "suggestion",
+ "physicalValidation": false
+}

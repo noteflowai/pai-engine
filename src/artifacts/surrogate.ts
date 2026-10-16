@@ -43,7 +43,17 @@ export const PartGeometry = z.object({ schema: z.literal("pai-part-geometry-1"),
 const Range = z.tuple([z.number(), z.number()]);
 export const SurrogatePrediction = z.object({ schema: z.literal("pai-surrogate-prediction-1"), deflectionMm: z.number(), stressMPa: z.number(), mass: z.number(),
   sigmaLog: z.record(z.string(), z.number()), interval90: z.object({ deflectionMm: Range, stressMPa: Range, mass: Range }).strict(),
-  inDomain: z.boolean(), outsideDomain: z.array(z.string()), ms: z.number(), authority: z.literal("suggestion") }).strict();
+  inDomain: z.boolean(), outsideDomain: z.array(z.string()), ms: z.number(), authority: z.literal("suggestion"),
+  // Versions that ship domain-2 (native/surrogate_domain.py): the detector's own numbers; inDomain already includes it.
+  domainCheck: z.object({ schema: z.literal("pai-surrogate-domain-2"), flagged: z.boolean(), mahalanobis: z.number(), embeddingRatio: z.number() }).strict().optional() }).strict();
+const DomainScore = z.object({ schema: z.literal("pai-surrogate-domain-score-1"), flagged: z.boolean(), reasons: z.array(z.string()), mahalanobis: z.number(), embeddingRatio: z.number() }).strict();
+const DomainHeldout = z.object({ schema: z.literal("pai-surrogate-domain-heldout-1"), subsets: z.record(z.string(), z.object({ rows: z.number(), flagged: z.number() }).strict()),
+  maxFalseAlarm: z.number(), failed: z.array(z.string()) }).strict();
+/** A version with the domain-2 detector: the prediction is trusted only if both domain checks pass. */
+const withDomain = (p: z.infer<typeof SurrogatePrediction>, d: z.infer<typeof DomainScore>): z.infer<typeof SurrogatePrediction> => ({
+  ...p, inDomain: p.inDomain && !d.flagged, outsideDomain: [...p.outsideDomain, ...d.reasons],
+  domainCheck: { schema: "pai-surrogate-domain-2", flagged: d.flagged, mahalanobis: d.mahalanobis, embeddingRatio: d.embeddingRatio } });
+const hasDomain2 = (files: Record<string, unknown>) => "domain-2.npz" in files && "surrogate_domain.py" in files;
 const Metrics = z.record(z.string(), z.object({ spearman: z.number().nullable(), medianRelError: z.number(), p90RelError: z.number(), maxRelError: z.number() }).strict());
 const Subset = z.object({ heldOut: z.number(), metrics: Metrics, conformal90Coverage: z.record(z.string(), z.number()) }).strict();
 const Evaluation = z.object({ schema: z.literal("pai-surrogate-evaluation-1"), heldOut: z.number(), metrics: Metrics, conformal90Coverage: z.record(z.string(), z.number()),
@@ -95,12 +105,14 @@ const lastJson = (s: string) => JSON.parse(s.trim().split("\n").at(-1) ?? "{}");
  * byte-identical to a one-shot one; any worker fault ends that pair and the request falls back to the one-shot path.
  */
 const IDLE_MS = 15 * 60_000;
-type Pair = { feat: EngineWorker; pred: EngineWorker; code: string; scratch: string; timer?: NodeJS.Timeout };
+type Pair = { feat: EngineWorker; pred: EngineWorker; dom?: EngineWorker; code: string; scratch: string; timer?: NodeJS.Timeout };
+const closePair = (p: Pair) => { p.feat.close(); p.pred.close(); p.dom?.close(); };
+const alive = (p: Pair) => p.feat.alive() && p.pred.alive() && (!p.dom || p.dom.alive());
 const pool = new Map<string, Promise<Pair>>();
 async function pairFor(ctx: RunContext): Promise<Pair> {
   const key = sha256(JSON.stringify([ctx.manifest.name, ctx.manifest.version, ctx.manifest.files]));
   const have = pool.get(key);
-  if (have) { const p = await have.catch(() => undefined); if (p && p.feat.alive() && p.pred.alive()) return touch(key, p); pool.delete(key); p?.feat.close(); p?.pred.close(); }
+  if (have) { const p = await have.catch(() => undefined); if (p && alive(p)) return touch(key, p); pool.delete(key); if (p) closePair(p); }
   const made = (async () => {
     const base = join(ctx.config.state, "surrogate", "serve", key.slice(0, 16));
     // Fresh on every start: a directory left by an earlier process (restart, release) is never trusted or reused.
@@ -112,7 +124,10 @@ async function pairFor(ctx: RunContext): Promise<Pair> {
       cwd: scratch, mounts: { read: [code], write: [scratch] } });
     const pred = await startWorker(ctx.config, { engine: "physics", program: ctx.config.physicsPython!, args: ["-I", worker, "--code", code, "--module", "surrogate_train",
       "--entry", "predict", "--cache", "load"], cwd: scratch, mounts: { read: [code], write: [scratch] } }).catch(e => { feat.close(); throw e; });
-    return touch(key, { feat, pred, code, scratch });
+    const dom = hasDomain2(ctx.manifest.files) ? await startWorker(ctx.config, { engine: "physics", program: ctx.config.physicsPython!, args: ["-I", worker, "--code", code,
+      "--module", "surrogate_domain", "--entry", "score_main", "--cache", "_members", "--cache", "load_domain"], cwd: scratch, mounts: { read: [code], write: [scratch] } })
+      .catch(e => { feat.close(); pred.close(); throw e; }) : undefined;
+    return touch(key, { feat, pred, dom, code, scratch });
   })();
   pool.set(key, made);
   made.catch(() => pool.delete(key));
@@ -120,13 +135,13 @@ async function pairFor(ctx: RunContext): Promise<Pair> {
 }
 function touch(key: string, p: Pair) {
   if (p.timer) clearTimeout(p.timer);
-  p.timer = setTimeout(() => { p.feat.close(); p.pred.close(); pool.delete(key); }, IDLE_MS);
+  p.timer = setTimeout(() => { closePair(p); pool.delete(key); }, IDLE_MS);
   p.timer.unref();
   return p;
 }
 /** Ends the resident workers and forgets them, as a process restart would (tests, release switch). */
 export function resetSurrogateWorkers() {
-  for (const [key, made] of pool) { pool.delete(key); void made.then(p => { if (p.timer) clearTimeout(p.timer); p.feat.close(); p.pred.close(); }, () => undefined); }
+  for (const [key, made] of pool) { pool.delete(key); void made.then(p => { if (p.timer) clearTimeout(p.timer); closePair(p); }, () => undefined); }
 }
 type Reply = { ok: boolean; stdout?: string; error?: string };
 /** Resident prediction; undefined means "use the one-shot path" (no worker, or the worker failed). */
@@ -151,11 +166,30 @@ async function residentPredict(ctx: RunContext, bytes: Buffer) {
     const p = await pair.pred.request<Reply>({ namespace: { weights: join(pair.code, "weights.pt"), features: feats, domain: join(pair.code, "domain.json") } }, 30_000);
     const receipts = [receipt("surrogate_featurize.py", f, pair.feat, t0, t1), receipt("surrogate_train.py predict", p, pair.pred, t1, Date.now())];
     if (!p.ok) return { failed: "prediction failed", receipts };
-    return { prediction: SurrogatePrediction.parse(lastJson(p.stdout ?? "")), receipts, ms: Date.now() - t0 };
+    let prediction = SurrogatePrediction.parse(lastJson(p.stdout ?? ""));
+    if (pair.dom) {
+      const t2 = Date.now();
+      const d = await pair.dom.request<Reply>({ namespace: { weights: join(pair.code, "weights.pt"), features: feats, domain: join(pair.code, "domain-2.npz") } }, 30_000);
+      receipts.push(receipt("surrogate_domain.py score", d, pair.dom, t2, Date.now()));
+      if (!d.ok) return { failed: "domain check failed", receipts };
+      prediction = withDomain(prediction, DomainScore.parse(lastJson(d.stdout ?? "")));
+    }
+    return { prediction, receipts, ms: Date.now() - t0 };
   } catch {
-    pair.feat.close(); pair.pred.close();
+    closePair(pair);
     return undefined;
   } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+/** domain-2 must be fitted for exactly these weights and training rows, by exactly the packaged detector. */
+function domainChain(meta: { schema?: string; weightsSha256?: string; npzSha256?: string; script?: string; trainRows?: number; datasets?: string[] },
+  files: Record<string, Buffer>, bench: { train?: number; datasets?: string[] }) {
+  return [meta.schema !== "pai-surrogate-domain-2" && "domain-2.json has another schema",
+    meta.weightsSha256 !== hash(files["weights.pt"]) && "domain-2 was fitted for other weights",
+    meta.npzSha256 !== hash(files["domain-2.npz"]) && "domain-2.npz differs from domain-2.json",
+    meta.script !== hash(files["surrogate_domain.py"]) && "surrogate_domain.py differs from the one that fitted domain-2",
+    meta.trainRows !== bench.train && `domain-2 was fitted on ${meta.trainRows} rows, the model on ${bench.train}`,
+    JSON.stringify(meta.datasets ?? null) !== JSON.stringify(bench.datasets ?? null) && "domain-2 was fitted on other datasets"];
 }
 
 export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): ArtifactAdapter {
@@ -184,6 +218,9 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
         "training-benchmark.json": await read(join(model, "benchmark.json")), "dataset-manifest.json": await read(join(data(dataset), "manifest.json")),
         "dataset-rows.jsonl": await read(join(data(dataset), "rows.jsonl")), "dataset-spec.json": await read(join(data(dataset), "spec.json")),
       };
+      // The applicability-domain detector (domain-2) is required for new versions: fitted on the same training rows.
+      files["surrogate_domain.py"] = await native("surrogate_domain.py");
+      files["domain-2.npz"] = await read(join(model, "domain-2.npz")); files["domain-2.json"] = await read(join(model, "domain-2.json"));
       // Extra datasets ship under their own names, so the primary dataset files keep their meaning (warm start).
       for (const d of datasets.slice(1)) for (const [n, f] of [["manifest.json", "manifest.json"], ["rows.jsonl", "rows.jsonl"], ["spec.json", "spec.json"]])
         files[`extra-${d}-${n}`] = await read(join(data(d), f));
@@ -196,7 +233,8 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
         bench.scripts?.["surrogate_featurize.py"] !== hash(files["surrogate_featurize.py"]) && "surrogate_featurize.py differs from the one that trained",
         man.family !== family && `dataset family ${man.family}`,
         ...extra.flatMap((e, i) => [hash(e.rows) !== e.man.rowsSha256 && `${e.d}: rows differ from its manifest`,
-          (bench.extraRowsSha256 ?? [])[i] !== e.man.rowsSha256 && `${e.d}: the model was trained on other rows`, e.man.family !== family && `${e.d}: family ${e.man.family}`])].filter(Boolean);
+          (bench.extraRowsSha256 ?? [])[i] !== e.man.rowsSha256 && `${e.d}: the model was trained on other rows`, e.man.family !== family && `${e.d}: family ${e.man.family}`]),
+        ...domainChain(JSON.parse(files["domain-2.json"].toString()), files, bench)].filter(Boolean);
       if (broken.length) throw new DomainError("SURROGATE_PROVENANCE", broken.join("; "), 409);
       const bo = lockVersions(files["bo-requirements.txt"].toString()), cq = lockVersions(files["cadquery-requirements.txt"].toString());
       const manifest: ArtifactManifest = {
@@ -208,9 +246,9 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
         operations: [{ id: "predict", description: "Featurize the STEP (CadQuery/OCCT tessellation, seeded by its digest) and run the deep ensemble; prediction, interval, domain check",
           inputs: { geometry: "pai-part-geometry-1" }, outputs: { prediction: "pai-surrogate-prediction-1" }, effects: "none" }],
         capabilities: ["geometry-only input (works without recipe parameters)", "deflection, stress and mass", "conformal 90 % intervals",
-          "out-of-domain flag", "bit-reproducible CPU inference", "held-out acceptance re-check"],
+          "out-of-domain flag (descriptor range, Mahalanobis, geometry-embedding distance)", "bit-reproducible CPU inference", "held-out acceptance re-check"],
         limits: { maxStepBytes: MAX_STEP_BYTES, trainRows: bench.train, heldOutRows: bench.heldOut },
-        runtime: { python: "3.12", lock: "bo-requirements.txt", entrypoints: { featurize: "surrogate_featurize.py", predict: "surrogate_train.py" } },
+        runtime: { python: "3.12", lock: "bo-requirements.txt", entrypoints: { featurize: "surrogate_featurize.py", predict: "surrogate_train.py", domain: "surrogate_domain.py" } },
         dependencies: [{ name: "torch", version: bo.torch, license: "BSD-3-Clause", source: `https://pypi.org/project/torch/${bo.torch}/`, role: "runtime" },
           { name: "cadquery", version: cq.cadquery, license: "Apache-2.0", source: `https://pypi.org/project/cadquery/${cq.cadquery}/`, role: "library" },
           { name: "cadquery-ocp", version: cq["cadquery-ocp"], license: "Apache-2.0", source: `https://pypi.org/project/cadquery-ocp/${cq["cadquery-ocp"]}/`, role: "library" }],
@@ -254,8 +292,16 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
       const p = await step(ctx, "physics", ctx.config.physicsPython!, ["-I", join(code, "surrogate_train.py"), "predict", "--weights", join(code, "weights.pt"), "--features", feats,
         "--domain", join(code, "domain.json")], 120_000);
       if (p.r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: "prediction failed", receipts: [f.receipt, p.receipt], usage: usage(0) };
-      const prediction = SurrogatePrediction.parse(lastJson(p.r.stdout));
-      return { state: "ok", outputs: { prediction }, status: prediction.inDomain ? "in-domain" : "out-of-domain", receipts: [f.receipt, p.receipt],
+      let prediction = SurrogatePrediction.parse(lastJson(p.r.stdout));
+      const receipts = [f.receipt, p.receipt];
+      if (hasDomain2(ctx.files)) {
+        const d = await step(ctx, "physics", ctx.config.physicsPython!, ["-I", join(code, "surrogate_domain.py"), "score", "--weights", join(code, "weights.pt"), "--features", feats,
+          "--domain", join(code, "domain-2.npz")], 120_000);
+        receipts.push(d.receipt);
+        if (d.r.exitCode !== 0) return { state: "failed", outputs: {}, status: "error", error: "domain check failed", receipts, usage: usage(0) };
+        prediction = withDomain(prediction, DomainScore.parse(lastJson(d.r.stdout)));
+      }
+      return { state: "ok", outputs: { prediction }, status: prediction.inDomain ? "in-domain" : "out-of-domain", receipts,
         usage: usage(Buffer.byteLength(JSON.stringify(prediction))) };
     },
 
@@ -271,9 +317,19 @@ export function structuralSurrogate(family: "nema17-bracket" | "pillow-block"): 
       const reproduces = JSON.stringify(ev.metrics) === JSON.stringify(bench.surrogate) && ev.weightsSha256 === bench.weightsSha256
         && JSON.stringify(ev.subsets ?? null) === JSON.stringify(bench.subsets ?? null);
       if (!reproduces) failed.push("the shipped weights do not reproduce the training report on the held-out rows");
+      // Domain-2 versions: the detector must not reject the model's own held-out parts (at most 10 % per subset).
+      let domainCheck: z.infer<typeof DomainHeldout> | undefined, domainReceipt;
+      if (hasDomain2(ctx.files)) {
+        const d = await step(ctx, "physics", ctx.config.physicsPython!, ["-I", join(code, "surrogate_domain.py"), "heldout", "--weights", join(code, "weights.pt"),
+          "--features", join(code, "heldout.npz"), "--domain", join(code, "domain-2.npz")], 600_000);
+        if (d.r.exitCode !== 0) throw new DomainError("BENCHMARK", "held-out domain check failed", 500);
+        domainCheck = DomainHeldout.parse(lastJson(d.r.stdout)); domainReceipt = d.receipt;
+        failed.push(...domainCheck.failed.map(f => `domain check ${f}`));
+      }
       return { passed: failed.length === 0, evidence: { schema: "pai-surrogate-acceptance-1", family, dataset, datasets, heldOut: ev.heldOut, gate: SURROGATE_GATE,
         ...(datasets.length > 1 ? { offRecipeGate: OFFRECIPE_GATE, subsets: ev.subsets } : {}), failed, metrics: ev.metrics, conformal90Coverage: ev.conformal90Coverage, reproducesTrainingReport: reproduces,
         gpBaselineOnParameters: bench.gpBaseline, selection: bench.selection, inferenceMs: bench.inferenceMs, receipt: e.receipt,
+        ...(domainCheck ? { domainCheck, domainReceipt } : {}),
         scope: "Held-out designs of the same synthetic family and load case; CalculiX labels. Not physical validation, not a solver." } };
     },
   };
