@@ -33,6 +33,9 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     await mkdir(model, { recursive: true });
     run(CQ!, ["native/surrogate_featurize.py", "--dataset", data, "--output", join(model, "features.npz")]);
     run(PY!, ["native/surrogate_train.py", "train", "--features", join(model, "features.npz"), "--output", model, "--members", "1", "--epochs", "3", "--cv-epochs", "2"]);
+    // New versions need the applicability-domain detector fitted for these weights.
+    await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.0" }, "t"), /domain-2\.npz is missing/);
+    run(PY!, ["native/surrogate_domain.py", "fit", "--weights", join(model, "weights.pt"), "--features", join(model, "features.npz"), "--output", model]);
     const a = await createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.0" }, "tester");
     assert.equal(a.manifest.kind, "model"); assert.equal(a.state, "draft");
     // Three epochs on 14 rows cannot pass the gate: the failed acceptance is kept, the draft is never validated.
@@ -40,6 +43,8 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     assert.equal(v.state, "draft"); assert.equal(v.validation!.passed, false);
     assert.equal((v.validation!.evidence as { reproducesTrainingReport: boolean }).reproducesTrainingReport, true);
     assert.ok(((v.validation!.evidence as { failed: string[] }).failed).length > 0);
+    const dc = (v.validation!.evidence as { domainCheck?: { subsets: Record<string, { rows: number; flagged: number }> } }).domainCheck;
+    assert.ok(dc && Object.values(dc.subsets).every(x => x.rows > 0), "acceptance re-checks the detector on the held-out rows");
     // Prediction on a real part: a suggestion with an interval and a domain verdict, executed by the artifact's own bytes.
     const step = await readFile(join(data, "points", "0000", "part.step"));
     const dir = join(state, "op"); await mkdir(dir);
@@ -48,6 +53,9 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     assert.equal(p.authority, "suggestion"); assert.equal(p.inDomain, true); assert.equal(p.interval90.deflectionMm.length, 2);
     // Resident workers: the first call starts them, later calls reuse them; every answer equals the one-shot command's.
     assert.ok(r.receipts.every(x => x.command[0] === "worker"), "served by the resident workers");
+    assert.ok(r.receipts.some(x => x.command[1] === "surrogate_domain.py score"), "the domain-2 detector ran");
+    const pd = p as unknown as { domainCheck: { schema: string; flagged: boolean; mahalanobis: number; embeddingRatio: number }; outsideDomain: string[] };
+    assert.equal(pd.domainCheck.schema, "pai-surrogate-domain-2"); assert.equal(pd.domainCheck.flagged, false);
     const again = await runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "nema17-bracket", stepBase64: step.toString("base64") } }, {}, dir);
     assert.deepEqual({ ...again.outputs.prediction as object, ms: 0 }, { ...p, ms: 0 }, "same prediction from the warm workers");
     assert.ok(again.receipts[0].seconds < 2, `warm featurize ${again.receipts[0].seconds} s`);
@@ -60,7 +68,10 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
     for (const [n, b] of Object.entries(artifactFiles(store, getArtifact(store, a.id)))) await writeFile(join(code, n), b);
     run(CQ!, [join(code, "surrogate_featurize.py"), "--step", join(data, "points", "0000", "part.step"), "--output", join(code, "one.npz")]);
     const oneShot = JSON.parse(run(PY!, [join(code, "surrogate_train.py"), "predict", "--weights", join(code, "weights.pt"), "--features", join(code, "one.npz"), "--domain", join(code, "domain.json")]));
-    assert.deepEqual({ ...oneShot, ms: 0 }, { ...p, ms: 0 }, "resident = one-shot, byte for byte"); void files;
+    const oneDom = JSON.parse(run(PY!, [join(code, "surrogate_domain.py"), "score", "--weights", join(code, "weights.pt"), "--features", join(code, "one.npz"), "--domain", join(code, "domain-2.npz")]));
+    const { domainCheck, ...rest } = p as unknown as Record<string, unknown>;
+    assert.deepEqual({ ...oneShot, ms: 0 }, { ...rest, ms: 0 }, "resident = one-shot, byte for byte");
+    assert.deepEqual(domainCheck, { schema: "pai-surrogate-domain-2", flagged: oneDom.flagged, mahalanobis: oneDom.mahalanobis, embeddingRatio: oneDom.embeddingRatio }); void files;
     await assert.rejects(runOperation(store, config, getArtifact(store, a.id), "predict", { geometry: { schema: "pai-part-geometry-1", family: "pillow-block", stepBase64: step.toString("base64") } }, {}, dir), /This surrogate is for nema17-bracket/);
     // Screening real model-written code: the template, a thinner plate (lighter) and broken code; only the sandbox,
     // the B-Rep checks and the surrogate run, nothing is reviewed. Needs the OS sandbox (bubblewrap).
@@ -79,6 +90,10 @@ test("surrogate artifact: build checks the data -> weights chain, acceptance re-
       assert.ok(by.thin.geometry.massG! < by.template.geometry.massG!, "thinner is lighter by B-Rep");
       assert.equal(sc!.variants.filter(v => v.chosen).length, 1); assert.equal(sc!.authority, "none");
     }
+    // A domain-2 fitted elsewhere (or altered) breaks the chain too.
+    const dz = await readFile(join(model, "domain-2.npz")); const dz2 = Buffer.from(dz); dz2[dz2.length - 10] ^= 0xff; await writeFile(join(model, "domain-2.npz"), dz2);
+    await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.1" }, "t"), /domain-2\.npz differs from domain-2\.json/);
+    await writeFile(join(model, "domain-2.npz"), dz);
     // Tampered weights break the chain: no new version can be built from them.
     const w = await readFile(join(model, "weights.pt")); w[w.length - 10] ^= 0xff; await writeFile(join(model, "weights.pt"), w);
     await assert.rejects(createArtifact(store, config, { adapter: "structural-surrogate-bracket", version: "0.1.1" }, "t"), /weights differ from the training report/);

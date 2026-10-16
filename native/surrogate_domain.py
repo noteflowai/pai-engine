@@ -3,6 +3,10 @@
     <physics python> -I surrogate_domain.py fit --weights W.pt --features F.npz [--extra-features E.npz ...] --output DIR
     <physics python> -I surrogate_domain.py score --weights W.pt --domain DIR/domain-2.npz --features one.npz
     <physics python> -I surrogate_domain.py shift-test --weights W.pt --features F.npz [--extra-features ...] --shift S.npz
+    <physics python> -I surrogate_domain.py heldout --weights W.pt --domain DIR/domain-2.npz --features heldout.npz
+
+The artifact ships domain-2.npz/.json and this script; prediction runs score (resident: score_main), acceptance runs
+heldout (each shipped held-out subset may be flagged at most SHIFT_GATE["maxFalseAlarm"]).
 
 A prediction is trusted only if the part passes every check; otherwise it is flagged "outside the domain" and ranks as
 unknown (the native solver decides either way). The detector was fixed on 2026-10-16, before any of its results were
@@ -132,17 +136,40 @@ def load_domain(path):
     return {k: z[k] for k in z.files}
 
 
+def _members(weights):
+    T.setup()
+    return T.load(weights)[1]
+
+
+def score_main(a):
+    """Resident entry (native/engine_worker.py, namespace {weights, domain, features}); same output as `score`."""
+    f = np.load(a.features)
+    print(json.dumps({"schema": "pai-surrogate-domain-score-1", **score(load_domain(a.domain), _members(a.weights), f["x"], f["g"])[0]}))
+
+
+def heldout_main(a):
+    """Acceptance re-check: the share of each shipped held-out subset the detector flags."""
+    h = np.load(a.features)
+    rows = score(load_domain(a.domain), _members(a.weights), h["x"], h["g"])
+    tag = h["tag"] if "tag" in h else np.zeros(len(rows), dtype=int)
+    names = [str(n) for n in h["tags"]] if "tags" in h else ["primary"]
+    subsets = {names[t]: {"rows": int((tag == t).sum()), "flagged": float(np.mean([r["flagged"] for r, k in zip(rows, tag == t) if k]))}
+               for t in range(len(names)) if (tag == t).sum()}
+    failed = [f"{n}: {v['flagged']:.0%} of held-out parts flagged > {SHIFT_GATE['maxFalseAlarm']:.0%}" for n, v in subsets.items() if v["flagged"] > SHIFT_GATE["maxFalseAlarm"]]
+    print(json.dumps({"schema": "pai-surrogate-domain-heldout-1", "subsets": subsets, "maxFalseAlarm": SHIFT_GATE["maxFalseAlarm"], "failed": failed}))
+
+
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["fit", "score", "shift-test"])
+    ap = argparse.ArgumentParser(); ap.add_argument("mode", choices=["fit", "score", "shift-test", "heldout"])
     ap.add_argument("--weights", required=True); ap.add_argument("--features", required=True); ap.add_argument("--extra-features", action="append", default=[])
     ap.add_argument("--domain"); ap.add_argument("--output"); ap.add_argument("--shift")
     a = ap.parse_args()
+    if a.mode == "score":
+        return score_main(a)
+    if a.mode == "heldout":
+        return heldout_main(a)
     T.setup()
     w, members = T.load(a.weights)
-    if a.mode == "score":
-        f = np.load(a.features)
-        print(json.dumps({"schema": "pai-surrogate-domain-score-1", **score(load_domain(a.domain), members, f["x"], f["g"])[0]}))
-        return
     x, g, y, tags, tr, te, names = training_rows(a.features, a.extra_features)
     dom = fit_domain(members, x[tr], g[tr])
     prov = {"weightsSha256": sha(a.weights), "featuresSha256": [sha(a.features), *map(sha, a.extra_features)], "trainRows": int(tr.sum()), "datasets": names}
