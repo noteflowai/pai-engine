@@ -1,0 +1,159 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-pillow@1.2.0",
+ "digest": "84eb68bd0ea7bf936475ed00211e51c459e7e1cb9e4a9c0543fda2061003dfcd",
+ "state": "released",
+ "supersedes": "structural-surrogate-pillow@1.1.0 (deprecated, kept)",
+ "change": "same datasets; retrained with the 0.21.1 trainer; ships the domain-2 applicability-domain detector (docs/evidence/surrogate-domain-shift-study.json)",
+ "acceptance": {
+  "recipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "offRecipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8,
+   "minHeldOut": 20
+  },
+  "failed": [],
+  "subsets": {
+   "fea-pillow-v1": {
+    "heldOut": 42,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9956,
+      "medianRelError": 0.02854200438958763,
+      "p90RelError": 0.06089659523026247,
+      "maxRelError": 0.13156022193058925
+     },
+     "stressMPa": {
+      "spearman": 0.9892,
+      "medianRelError": 0.01930340435360204,
+      "p90RelError": 0.044108969911867336,
+      "maxRelError": 0.0866998956011596
+     },
+     "mass": {
+      "spearman": 0.9995,
+      "medianRelError": 0.0017875085975217592,
+      "p90RelError": 0.004382831210633843,
+      "maxRelError": 0.007110672932053179
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 1,
+     "mass": 1
+    }
+   },
+   "fea-pillow-offrecipe-v1": {
+    "heldOut": 29,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9698,
+      "medianRelError": 0.04319690838755682,
+      "p90RelError": 0.08687311306231461,
+      "maxRelError": 0.11704929654570455
+     },
+     "stressMPa": {
+      "spearman": 0.9338,
+      "medianRelError": 0.062106914216395484,
+      "p90RelError": 0.14064176704159814,
+      "maxRelError": 0.16566322539195724
+     },
+     "mass": {
+      "spearman": 0.9936,
+      "medianRelError": 0.003716504957002458,
+      "p90RelError": 0.008358688116334691,
+      "maxRelError": 0.012980180093429777
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 0.9310344827586207,
+     "mass": 0.9655172413793104
+    }
+   }
+  },
+  "overall": {
+   "deflectionMm": {
+    "spearman": 0.9867,
+    "medianRelError": 0.02876749228397151,
+    "p90RelError": 0.07369473305110556,
+    "maxRelError": 0.13156022193058925
+   },
+   "stressMPa": {
+    "spearman": 0.9711,
+    "medianRelError": 0.02945197338439837,
+    "p90RelError": 0.11337414510524385,
+    "maxRelError": 0.16566322539195724
+   },
+   "mass": {
+    "spearman": 0.9988,
+    "medianRelError": 0.002252287739721483,
+    "p90RelError": 0.007110672932053179,
+    "maxRelError": 0.012980180093429777
+   }
+  },
+  "reproducesTrainingReport": true,
+  "domainCheck": {
+   "schema": "pai-surrogate-domain-heldout-1",
+   "subsets": {
+    "fea-pillow-v1": {
+     "rows": 42,
+     "flagged": 0
+    },
+    "fea-pillow-offrecipe-v1": {
+     "rows": 29,
+     "flagged": 0.06896551724137931
+    }
+   },
+   "maxFalseAlarm": 0.1,
+   "failed": []
+  }
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9985,
+   "medianRelError": 0.007029371162238543,
+   "p90RelError": 0.01500107667991403,
+   "maxRelError": 0.01759108506847086
+  },
+  "stressMPa": {
+   "spearman": 0.9932,
+   "medianRelError": 0.010774354211511593,
+   "p90RelError": 0.03754474254239618,
+   "maxRelError": 0.05007404162773094
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 4.9297087129243354e-05,
+   "p90RelError": 0.00016262054888994723,
+   "maxRelError": 0.0002735965227905605
+  }
+ },
+ "authority": "suggestion",
+ "physicalValidation": false
+}

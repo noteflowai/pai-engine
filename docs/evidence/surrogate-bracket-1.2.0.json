@@ -1,0 +1,159 @@
+{
+ "schema": "pai-surrogate-hosted-1",
+ "site": "https://pai.oneai.host",
+ "artifact": "structural-surrogate-bracket@1.2.0",
+ "digest": "f40676a7af45a7c67383fffba87ba92343b5f3d3b40e26837f392ac00c0473b8",
+ "state": "released",
+ "supersedes": "structural-surrogate-bracket@1.1.0 (deprecated, kept)",
+ "change": "same datasets; retrained with the 0.21.1 trainer; ships the domain-2 applicability-domain detector (docs/evidence/surrogate-domain-shift-study.json)",
+ "acceptance": {
+  "recipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.9,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8
+  },
+  "offRecipeGate": {
+   "deflectionMm": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "stressMPa": {
+    "minSpearman": 0.8,
+    "maxMedianRelError": 0.1
+   },
+   "mass": {
+    "minSpearman": 0.95,
+    "maxMedianRelError": 0.05
+   },
+   "minConformalCoverage": 0.8,
+   "minHeldOut": 20
+  },
+  "failed": [],
+  "subsets": {
+   "fea-bracket-v1": {
+    "heldOut": 40,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9988,
+      "medianRelError": 0.020489666765775218,
+      "p90RelError": 0.06365649904203419,
+      "maxRelError": 0.09927132294108351
+     },
+     "stressMPa": {
+      "spearman": 0.9982,
+      "medianRelError": 0.01972212975399177,
+      "p90RelError": 0.05675222610034284,
+      "maxRelError": 0.12810525943939044
+     },
+     "mass": {
+      "spearman": 0.9998,
+      "medianRelError": 0.0022460506554256225,
+      "p90RelError": 0.006088124205798661,
+      "maxRelError": 0.017525873387531397
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 1,
+     "stressMPa": 1,
+     "mass": 0.975
+    }
+   },
+   "fea-bracket-offrecipe-v1": {
+    "heldOut": 32,
+    "metrics": {
+     "deflectionMm": {
+      "spearman": 0.9872,
+      "medianRelError": 0.05659552459592637,
+      "p90RelError": 0.10570425972768785,
+      "maxRelError": 0.17007512975301045
+     },
+     "stressMPa": {
+      "spearman": 0.9778,
+      "medianRelError": 0.04461353807035054,
+      "p90RelError": 0.08763772008606249,
+      "maxRelError": 0.17531378883540114
+     },
+     "mass": {
+      "spearman": 0.9996,
+      "medianRelError": 0.0024036712032513086,
+      "p90RelError": 0.005887272390173163,
+      "maxRelError": 0.014800042940285436
+     }
+    },
+    "conformal90Coverage": {
+     "deflectionMm": 0.96875,
+     "stressMPa": 0.96875,
+     "mass": 1
+    }
+   }
+  },
+  "overall": {
+   "deflectionMm": {
+    "spearman": 0.9963,
+    "medianRelError": 0.026579806859137328,
+    "p90RelError": 0.0775230305574886,
+    "maxRelError": 0.17007512975301045
+   },
+   "stressMPa": {
+    "spearman": 0.9957,
+    "medianRelError": 0.02812941125410686,
+    "p90RelError": 0.08018375406304361,
+    "maxRelError": 0.17531378883540114
+   },
+   "mass": {
+    "spearman": 0.9995,
+    "medianRelError": 0.0023016940677784157,
+    "p90RelError": 0.006021042473973975,
+    "maxRelError": 0.017525873387531397
+   }
+  },
+  "reproducesTrainingReport": true,
+  "domainCheck": {
+   "schema": "pai-surrogate-domain-heldout-1",
+   "subsets": {
+    "fea-bracket-v1": {
+     "rows": 40,
+     "flagged": 0
+    },
+    "fea-bracket-offrecipe-v1": {
+     "rows": 32,
+     "flagged": 0.03125
+    }
+   },
+   "maxFalseAlarm": 0.1,
+   "failed": []
+  }
+ },
+ "gpBaselineOnParameters": {
+  "deflectionMm": {
+   "spearman": 0.9996,
+   "medianRelError": 0.0027900591842027105,
+   "p90RelError": 0.005366540686489041,
+   "maxRelError": 0.007601459950487848
+  },
+  "stressMPa": {
+   "spearman": 0.9987,
+   "medianRelError": 0.01314466661762372,
+   "p90RelError": 0.02910835138681346,
+   "maxRelError": 0.047737234396104264
+  },
+  "mass": {
+   "spearman": 1,
+   "medianRelError": 3.63535951928436e-05,
+   "p90RelError": 0.0004588607451927125,
+   "maxRelError": 0.002085371345759724
+  }
+ },
+ "authority": "suggestion",
+ "physicalValidation": false
+}
